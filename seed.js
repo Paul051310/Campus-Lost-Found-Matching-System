@@ -2,7 +2,7 @@
 require("dotenv").config();
 
 const mongoose = require("mongoose");
-const Item = require("./models/Item1");
+const Item = require("./models/Item");
 
 const sampleItems = [
   {
