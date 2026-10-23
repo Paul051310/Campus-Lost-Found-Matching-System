@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from "react";
 import "./App.css";
+import Chatbot from "./Chatbot";
 
 const API_URL = "http://localhost:5000/api/items";
 const SERVER_URL = "http://localhost:5000";
@@ -36,7 +37,6 @@ function getImageSrc(imageUrl) {
 
 async function readResponse(response) {
   const text = await response.text();
-
   let data = {};
 
   try {
@@ -47,7 +47,7 @@ async function readResponse(response) {
 
   if (!response.ok) {
     throw new Error(
-      data.message || `Request failed (${response.status}).`
+      data.message || data.error || `Request failed (${response.status}).`
     );
   }
 
@@ -99,7 +99,7 @@ function App() {
     contactInfo: ""
   });
 
-  // Load reports from MongoDB through the backend.
+  // Load reports from MongoDB.
   useEffect(() => {
     let cancelled = false;
 
@@ -134,7 +134,7 @@ function App() {
     };
   }, []);
 
-  // Preview the selected photo on the report form.
+  // Preview a selected report photo.
   useEffect(() => {
     if (!selectedImage) {
       setImagePreview("");
@@ -147,7 +147,7 @@ function App() {
     return () => URL.revokeObjectURL(previewUrl);
   }, [selectedImage]);
 
-  // Preview the replacement photo on the edit form.
+  // Preview a replacement photo.
   useEffect(() => {
     if (!editSelectedImage) {
       setEditImagePreview("");
@@ -173,10 +173,10 @@ function App() {
 
     if (!file) return;
 
-    const validationMessage = validateImage(file);
+    const message = validateImage(file);
 
-    if (validationMessage) {
-      setFormMessage(validationMessage);
+    if (message) {
+      setFormMessage(message);
       event.target.value = "";
       return;
     }
@@ -190,10 +190,10 @@ function App() {
 
     if (!file) return;
 
-    const validationMessage = validateImage(file);
+    const message = validateImage(file);
 
-    if (validationMessage) {
-      setActionMessage(validationMessage);
+    if (message) {
+      setActionMessage(message);
       event.target.value = "";
       return;
     }
@@ -284,8 +284,7 @@ function App() {
       setFormMessage("Your report was submitted successfully!");
     } catch (err) {
       setFormMessage(
-        err.message ||
-          "Unable to submit your report. Check your backend server."
+        err.message || "Unable to submit your report."
       );
     } finally {
       setSubmitting(false);
@@ -467,7 +466,7 @@ function App() {
     setActionMessage("");
     setShowForm(false);
 
-    setTimeout(() => {
+    window.setTimeout(() => {
       document.getElementById("edit-item")?.scrollIntoView({
         behavior: "smooth",
         block: "start"
@@ -497,7 +496,6 @@ function App() {
     try {
       let imageUrl = editingItem.imageUrl || "";
 
-      // Upload a new photo only if the user selected one.
       if (editSelectedImage) {
         imageUrl = await uploadImage(editSelectedImage);
       }
@@ -537,8 +535,7 @@ function App() {
       setActionMessage("Item and photo updated successfully!");
     } catch (err) {
       setActionMessage(
-        err.message ||
-          "Update failed. Check that your backend and image upload endpoint are running."
+        err.message || "Unable to update the item."
       );
     } finally {
       setActionLoading(false);
@@ -611,18 +608,28 @@ function App() {
         <a className="menu-item active" href="#dashboard">
           <span>▦</span> Dashboard
         </a>
+
         <a className="menu-item" href="#items">
           <span>⌕</span> Browse Items
         </a>
+
         <a className="menu-item" href="#matches">
           <span>↔</span> Possible Matches
         </a>
+
         <a
           className="menu-item"
           href="#report"
-          onClick={() => setShowForm(true)}
+          onClick={() => {
+            setShowForm(true);
+            setFormMessage("");
+          }}
         >
           <span>＋</span> Report an Item
+        </a>
+
+        <a className="menu-item" href="#ai-assistant">
+          <span>✦</span> AI Assistant
         </a>
 
         <div className="sidebar-note">
@@ -677,18 +684,21 @@ function App() {
             <h2>{items.length}</h2>
             <small>All reported items</small>
           </div>
+
           <div className="stat-card">
             <div className="stat-icon orange">⌕</div>
             <p>Lost Items</p>
             <h2>{lostCount}</h2>
             <small>Items reported missing</small>
           </div>
+
           <div className="stat-card">
             <div className="stat-icon green">✓</div>
             <p>Found Items</p>
             <h2>{foundCount}</h2>
             <small>Items reported found</small>
           </div>
+
           <div className="stat-card">
             <div className="stat-icon purple">♡</div>
             <p>Matched Items</p>
@@ -747,7 +757,9 @@ function App() {
                           📍 {lostItem.location || "Location not provided"}
                         </p>
                       </div>
+
                       <div className="match-arrow">↔</div>
+
                       <div className="match-item found-match">
                         <small>FOUND ITEM</small>
                         <h3>{foundItem.itemName}</h3>
@@ -789,6 +801,7 @@ function App() {
                 with their owners.
               </p>
             </div>
+
             <button
               type="button"
               className="report-button"
@@ -956,9 +969,7 @@ function App() {
             <div className="report-heading">
               <div>
                 <h2>Edit Item Report</h2>
-                <p>
-                  Update the report details or replace its photo.
-                </p>
+                <p>Update the report details or replace its photo.</p>
               </div>
               <button
                 type="button"
@@ -1081,7 +1092,6 @@ function App() {
 
                 <div className="full-width image-upload-field edit-image-field">
                   <label htmlFor="editItemImage">Replace Item Photo</label>
-
                   <input
                     id="editItemImage"
                     type="file"
@@ -1089,10 +1099,9 @@ function App() {
                     onChange={handleEditImageChange}
                     disabled={actionLoading}
                   />
-
                   <small>
-                    Choose a new JPG, PNG, or WebP photo up to 5 MB.
-                    Leave this empty to keep the current photo.
+                    JPG, PNG, or WebP up to 5 MB. Leave empty to keep the
+                    current photo.
                   </small>
 
                   {(editImagePreview || editingItem.imageUrl) && (
@@ -1259,10 +1268,7 @@ function App() {
 
           <div className="items-grid">
             {filteredItems.map((item) => (
-              <article
-                className="item-card"
-                key={item._id || item.id}
-              >
+              <article className="item-card" key={item._id || item.id}>
                 <div className="item-card-top">
                   <div className="item-placeholder">
                     {item.imageUrl ? (
@@ -1336,6 +1342,7 @@ function App() {
                     >
                       ✎ Edit
                     </button>
+
                     <button
                       type="button"
                       className="delete-button"
@@ -1349,6 +1356,22 @@ function App() {
               </article>
             ))}
           </div>
+        </section>
+
+        {/* CAMPUSFIND AI CHATBOT */}
+        <section className="ai-assistant-section" id="ai-assistant">
+          <div className="section-heading">
+            <div>
+              <h2>CampusFind AI Assistant</h2>
+              <p>
+                Get guidance about lost and found items with your local AI
+                assistant.
+              </p>
+            </div>
+            <span className="result-count">AI Assistant</span>
+          </div>
+
+          <Chatbot />
         </section>
 
         <footer className="page-footer">

@@ -7,7 +7,10 @@ const cors = require("cors");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+
 const itemRoutes = require("./routes/itemRoutes");
+const chatRoutes = require("./routes/chatRoutes");
+const matchRoutes = require("./routes/matchRoutes");
 
 const app = express();
 
@@ -44,7 +47,7 @@ const upload = multer({
   storage: storage,
 
   limits: {
-    fileSize: 5 * 1024 * 1024 // 5 MB maximum
+    fileSize: 5 * 1024 * 1024
   },
 
   fileFilter: (req, file, cb) => {
@@ -87,30 +90,43 @@ app.post("/api/items/upload", (req, res) => {
       });
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       message: "Image uploaded successfully!",
       imageUrl: `/uploads/${req.file.filename}`
     });
   });
 });
 
-// Connect item API routes
+// Existing lost-and-found item routes
 app.use("/api/items", itemRoutes);
+
+// Existing AI chatbot route
+app.use("/api/chat", chatRoutes);
+
+// NEW: Hybrid MongoDB + Ollama matching route
+app.use("/api/matches", matchRoutes);
 
 // Server configuration
 const PORT = process.env.PORT || 5000;
 
 async function startServer() {
   try {
+    if (!process.env.MONGO_URI) {
+      throw new Error("MONGO_URI is missing from your .env file.");
+    }
+
     await mongoose.connect(process.env.MONGO_URI);
 
     console.log("MongoDB connected successfully");
 
     app.listen(PORT, () => {
       console.log(`Server running at http://localhost:${PORT}`);
+      console.log("CampusFind AI chatbot: http://localhost:5000/api/chat");
+      console.log("CampusFind hybrid matching: http://localhost:5000/api/matches");
     });
   } catch (error) {
     console.error("Connection error:", error.message);
+    process.exit(1);
   }
 }
 

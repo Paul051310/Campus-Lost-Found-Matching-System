@@ -1,0 +1,579 @@
+
+/* =========================================
+   CAMPUSFIND AI CHATBOT
+   Clean, modern, responsive design
+========================================= */
+
+.campus-chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 24px auto;
+  overflow: hidden;
+
+  color: #172033;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+
+  box-shadow: 0 6px 24px rgba(15, 23, 42, 0.06);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.campus-chat *,
+.campus-chat *::before,
+.campus-chat *::after {
+  box-sizing: border-box;
+}
+
+/* =========================================
+   CHAT HEADER
+========================================= */
+
+.campus-chat-header {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+
+  width: 100%;
+  padding: 20px 24px;
+
+  color: #ffffff;
+  background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+}
+
+.campus-chat-avatar {
+  display: grid;
+  place-items: center;
+
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 14px;
+
+  font-size: 25px;
+  font-weight: 700;
+}
+
+.campus-chat-header h2 {
+  margin: 0 0 5px;
+
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.campus-chat-header p {
+  margin: 0;
+
+  color: #dbeafe;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.campus-chat-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+
+  margin-left: auto;
+  padding: 7px 10px;
+
+  color: #dcfce7;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* =========================================
+   CHAT MESSAGES AREA
+========================================= */
+
+.campus-chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+
+  width: 100%;
+  min-height: 320px;
+  max-height: 460px;
+  overflow-y: auto;
+
+  padding: 24px;
+
+  background: #f8fafc;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
+}
+
+.campus-chat-messages::-webkit-scrollbar {
+  width: 6px;
+}
+
+.campus-chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.campus-chat-messages::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 10px;
+}
+
+.campus-chat-messages::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* =========================================
+   MESSAGE ROWS
+========================================= */
+
+.campus-chat-row {
+  display: flex;
+  align-items: flex-end;
+
+  width: 100%;
+  min-width: 0;
+}
+
+.campus-chat-row.is-ai {
+  justify-content: flex-start;
+}
+
+.campus-chat-row.is-user {
+  justify-content: flex-end;
+}
+
+/* =========================================
+   MESSAGE BUBBLES
+========================================= */
+
+.campus-chat-bubble {
+  max-width: min(82%, 620px);
+  padding: 13px 16px;
+
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.7;
+
+  border-radius: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+/* AI message */
+
+.campus-chat-row.is-ai .campus-chat-bubble {
+  color: #334155;
+  background: #ffffff;
+
+  border: 1px solid #e2e8f0;
+  border-bottom-left-radius: 5px;
+
+  box-shadow: 0 2px 5px rgba(15, 23, 42, 0.025);
+}
+
+/* User message */
+
+.campus-chat-row.is-user .campus-chat-bubble {
+  color: #ffffff;
+  background: #2563eb;
+
+  border: 1px solid #2563eb;
+  border-bottom-right-radius: 5px;
+
+  box-shadow: 0 3px 8px rgba(37, 99, 235, 0.12);
+}
+
+/* =========================================
+   ERROR MESSAGE
+========================================= */
+
+.campus-chat-error {
+  margin: 14px 20px 0;
+  padding: 12px 14px;
+
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* =========================================
+   CHAT INPUT FORM
+========================================= */
+
+.campus-chat-form {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  width: 100%;
+  padding: 18px 20px;
+
+  background: #ffffff;
+  border-top: 1px solid #e8edf4;
+}
+
+.campus-chat-form input {
+  flex: 1;
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+
+  padding: 12px 15px;
+
+  color: #172033;
+  background: #f8fafc;
+
+  border: 1px solid #dbe3ee;
+  border-radius: 11px;
+  outline: none;
+
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease,
+    background 0.2s ease;
+}
+
+.campus-chat-form input::placeholder {
+  color: #94a3b8;
+}
+
+.campus-chat-form input:hover {
+  border-color: #cbd5e1;
+}
+
+.campus-chat-form input:focus {
+  background: #ffffff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.campus-chat-form input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+/* =========================================
+   SEND BUTTON
+========================================= */
+
+.campus-chat-form button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+
+  min-width: 88px;
+  min-height: 46px;
+  padding: 12px 20px;
+
+  color: #ffffff;
+  background: #2563eb;
+
+  border: 1px solid #2563eb;
+  border-radius: 11px;
+
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+  white-space: nowrap;
+
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.campus-chat-form button:hover:not(:disabled) {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+}
+
+.campus-chat-form button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.campus-chat-form button:focus-visible {
+  outline: 3px solid rgba(59, 130, 246, 0.3);
+  outline-offset: 3px;
+}
+
+.campus-chat-form button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* =========================================
+   DISCLAIMER
+========================================= */
+
+.campus-chat-disclaimer {
+  margin: 0;
+  padding: 0 20px 18px;
+
+  color: #94a3b8;
+  background: #ffffff;
+
+  font-size: 11px;
+  line-height: 1.6;
+  text-align: center;
+}
+
+/* =========================================
+   AI ASSISTANT SECTION IN DASHBOARD
+========================================= */
+
+.ai-assistant-section {
+  width: 100%;
+  min-width: 0;
+  margin-top: 32px;
+  padding: 24px;
+
+  background: #ffffff;
+  border: 1px solid #e5eaf2;
+  border-radius: 18px;
+
+  box-shadow: 0 4px 18px rgba(15, 23, 42, 0.04);
+  scroll-margin-top: 24px;
+}
+
+.ai-assistant-section .section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+
+  margin-bottom: 20px;
+}
+
+.ai-assistant-section .section-heading h2 {
+  margin: 0 0 7px;
+  color: #172033;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.ai-assistant-section .section-heading p {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.ai-assistant-section .result-count {
+  flex-shrink: 0;
+}
+
+.ai-assistant-section .campus-chat {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+
+  box-shadow: none;
+}
+
+/* =========================================
+   RESPONSIVE TABLETS
+========================================= */
+
+@media (max-width: 900px) {
+  .campus-chat-header {
+    padding: 18px;
+  }
+
+  .campus-chat-messages {
+    min-height: 300px;
+    padding: 20px;
+  }
+
+  .campus-chat-bubble {
+    max-width: 88%;
+  }
+
+  .ai-assistant-section {
+    padding: 20px;
+  }
+}
+
+/* =========================================
+   RESPONSIVE MOBILE
+========================================= */
+
+@media (max-width: 600px) {
+  .ai-assistant-section {
+    margin-top: 22px;
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .ai-assistant-section .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 15px;
+  }
+
+  .ai-assistant-section .section-heading h2 {
+    font-size: 18px;
+  }
+
+  .campus-chat {
+    margin: 0;
+    border-radius: 13px;
+  }
+
+  .campus-chat-header {
+    gap: 10px;
+    padding: 15px;
+  }
+
+  .campus-chat-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    font-size: 22px;
+  }
+
+  .campus-chat-header h2 {
+    font-size: 16px;
+  }
+
+  .campus-chat-header p {
+    font-size: 11px;
+  }
+
+  .campus-chat-status {
+    gap: 4px;
+    padding: 6px 8px;
+    font-size: 10px;
+  }
+
+  .campus-chat-messages {
+    gap: 14px;
+    min-height: 280px;
+    max-height: 380px;
+    padding: 15px;
+  }
+
+  .campus-chat-bubble {
+    max-width: 90%;
+    padding: 11px 13px;
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .campus-chat-form {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .campus-chat-form input {
+    min-height: 43px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+
+  .campus-chat-form button {
+    min-width: 68px;
+    min-height: 43px;
+    padding: 10px 13px;
+    font-size: 13px;
+  }
+
+  .campus-chat-error {
+    margin: 12px 12px 0;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+
+  .campus-chat-disclaimer {
+    padding: 0 12px 13px;
+    font-size: 10px;
+  }
+}
+
+/* =========================================
+   EXTRA SMALL MOBILE
+========================================= */
+
+@media (max-width: 380px) {
+  .campus-chat-header {
+    gap: 8px;
+    padding: 12px;
+  }
+
+  .campus-chat-avatar {
+    width: 34px;
+    height: 34px;
+    font-size: 19px;
+  }
+
+  .campus-chat-header h2 {
+    font-size: 14px;
+  }
+
+  .campus-chat-status {
+    padding: 5px 6px;
+    font-size: 9px;
+  }
+
+  .campus-chat-messages {
+    padding: 12px;
+  }
+
+  .campus-chat-form {
+    gap: 6px;
+    padding: 10px;
+  }
+
+  .campus-chat-form input {
+    padding: 9px;
+    font-size: 12px;
+  }
+
+  .campus-chat-form button {
+    min-width: 58px;
+    padding: 9px;
+    font-size: 12px;
+  }
+}
+
+/* =========================================
+   REDUCED MOTION ACCESSIBILITY
+========================================= */
+
+@media (prefers-reduced-motion: reduce) {
+  .campus-chat *,
+  .campus-chat *::before,
+  .campus-chat *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
