@@ -1,7 +1,9 @@
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import "./App.css";
 import Chatbot from "./Chatbot";
+import Navbar from "./pages/Navbar";
 
 const API_URL = "http://localhost:5000/api/items";
 const SERVER_URL = "http://localhost:5000";
@@ -17,7 +19,7 @@ const CATEGORIES = [
   "Accessories",
   "Keys",
   "Jewelry",
-  "Other"
+  "Other",
 ];
 
 const ITEM_STATUSES = ["Open", "Matched", "Claimed"];
@@ -25,12 +27,41 @@ const MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = [
   "image/jpeg",
   "image/png",
-  "image/webp"
+  "image/webp",
 ];
+
+const STOP_WORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "this",
+  "that",
+  "item",
+  "lost",
+  "found",
+  "have",
+  "has",
+  "was",
+  "were",
+  "are",
+  "near",
+  "some",
+  "small",
+  "large",
+  "very",
+  "into",
+  "your",
+  "mine",
+]);
 
 function getImageSrc(imageUrl) {
   if (!imageUrl) return "";
-  if (/^https?:\/\//i.test(imageUrl)) return imageUrl;
+
+  if (/^https?:\/\//i.test(imageUrl)) {
+    return imageUrl;
+  }
 
   return `${SERVER_URL}/${imageUrl.replace(/^\/+/, "")}`;
 }
@@ -47,7 +78,9 @@ async function readResponse(response) {
 
   if (!response.ok) {
     throw new Error(
-      data.message || data.error || `Request failed (${response.status}).`
+      data.message ||
+        data.error ||
+        `Request failed (${response.status}).`
     );
   }
 
@@ -66,7 +99,130 @@ function validateImage(file) {
   return "";
 }
 
-function App() {
+function normalize(value) {
+  return String(value || "")
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function getWords(value) {
+  return normalize(value)
+    .split(/\s+/)
+    .filter(
+      (word) => word.length > 2 && !STOP_WORDS.has(word)
+    );
+}
+
+function getMatchDetails(lostItem, foundItem) {
+  let score = 0;
+  const reasons = [];
+
+  const lostName = normalize(lostItem.itemName);
+  const foundName = normalize(foundItem.itemName);
+
+  const lostWords = new Set(getWords(lostItem.itemName));
+  const foundWords = new Set(getWords(foundItem.itemName));
+
+  const sharedNameWords = [...lostWords].filter((word) =>
+    foundWords.has(word)
+  );
+
+  if (lostName && lostName === foundName) {
+    score += 5;
+    reasons.push("Item names match");
+  } else if (sharedNameWords.length > 0) {
+    score += Math.min(4, sharedNameWords.length * 2);
+
+    reasons.push(
+      `Shared name detail${
+        sharedNameWords.length > 1 ? "s" : ""
+      }: ${sharedNameWords.join(", ")}`
+    );
+  }
+
+  const lostCategory = normalize(lostItem.category);
+  const foundCategory = normalize(foundItem.category);
+
+  if (
+    lostCategory &&
+    foundCategory &&
+    lostCategory === foundCategory
+  ) {
+    score += 3;
+    reasons.push("Same category");
+  }
+
+  const lostLocation = normalize(lostItem.location);
+  const foundLocation = normalize(foundItem.location);
+
+  if (lostLocation && foundLocation) {
+    if (lostLocation === foundLocation) {
+      score += 3;
+      reasons.push("Same location");
+    } else {
+      const lostLocationWords = new Set(getWords(lostLocation));
+      const foundLocationWords = new Set(getWords(foundLocation));
+
+      const sharedLocations = [...lostLocationWords].filter(
+        (word) => foundLocationWords.has(word)
+      );
+
+      if (
+        lostLocation.includes(foundLocation) ||
+        foundLocation.includes(lostLocation) ||
+        sharedLocations.length > 0
+      ) {
+        score += 1;
+        reasons.push("Similar location");
+      }
+    }
+  }
+
+  const lostDescriptionWords = new Set(
+    getWords(lostItem.description)
+  );
+
+  const foundDescriptionWords = new Set(
+    getWords(foundItem.description)
+  );
+
+  const sharedDescriptionWords = [
+    ...lostDescriptionWords,
+  ].filter((word) => foundDescriptionWords.has(word));
+
+  if (sharedDescriptionWords.length > 0) {
+    score += Math.min(3, sharedDescriptionWords.length);
+    reasons.push("Similar description details");
+  }
+
+  // This is a ranking score, not a probability.
+  const maxScore = 14;
+  const percentage = Math.min(
+    99,
+    Math.round((score / maxScore) * 100)
+  );
+
+  return { score, percentage, reasons };
+}
+
+function App({ user, isAdmin = false }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const currentPath = location.pathname;
+
+  const pageTitles = {
+    "/": "Lost & Found Dashboard",
+    "/browse": "Browse Items",
+    "/matches": "Possible Matches",
+    "/report": "Report an Item",
+    "/assistant": "AI Assistant",
+  };
+
+  const currentTitle = pageTitles[currentPath] || pageTitles["/"];
+
   const [items, setItems] = useState([]);
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("All");
@@ -84,9 +240,11 @@ function App() {
   const [showForm, setShowForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formMessage, setFormMessage] = useState("");
-
   const [selectedImage, setSelectedImage] = useState(null);
   const [imagePreview, setImagePreview] = useState("");
+
+  const [matchFilter, setMatchFilter] = useState("All");
+  const [minimumMatchScore, setMinimumMatchScore] = useState("3");
 
   const [formData, setFormData] = useState({
     itemName: "",
@@ -96,19 +254,71 @@ function App() {
     location: "",
     date: new Date().toISOString().split("T")[0],
     imageUrl: "",
-    contactInfo: ""
+    contactInfo: "",
   });
 
-  // Load reports from MongoDB.
+  // IMPORTANT:
+  // When the app is loaded or refreshed directly on a subpage,
+  // redirect to the Dashboard. Normal in-app navigation is unaffected.
+  useEffect(() => {
+    if (window.performance?.getEntriesByType) {
+      const navigationEntries =
+        window.performance.getEntriesByType("navigation");
+
+      const navigationType = navigationEntries[0]?.type;
+
+      if (
+        location.pathname !== "/" &&
+        (navigationType === "reload" ||
+          navigationType === "navigate")
+      ) {
+        navigate("/", { replace: true });
+      }
+    }
+    // Run only when the app first mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load reported items from the backend.
+  async function loadItems(showLoading = true) {
+    try {
+      if (showLoading) setLoading(true);
+
+      setError("");
+
+      const response = await fetch(API_URL, {
+        method: "GET",
+        credentials: "include",
+      });
+
+      const data = await readResponse(response);
+      const records = Array.isArray(data) ? data : data.items;
+
+      setItems(Array.isArray(records) ? records : []);
+    } catch (err) {
+      setError(
+        err.message ||
+          "Could not connect to the backend. Make sure your server is running."
+      );
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }
+
+  // Load items when the application starts.
   useEffect(() => {
     let cancelled = false;
 
-    async function loadItems() {
+    async function initialLoad() {
       try {
         setLoading(true);
         setError("");
 
-        const response = await fetch(API_URL);
+        const response = await fetch(API_URL, {
+          method: "GET",
+          credentials: "include",
+        });
+
         const data = await readResponse(response);
         const records = Array.isArray(data) ? data : data.items;
 
@@ -123,91 +333,120 @@ function App() {
           );
         }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
-    loadItems();
+    initialLoad();
 
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // Preview a selected report photo.
-  useEffect(() => {
-    if (!selectedImage) {
-      setImagePreview("");
-      return undefined;
-    }
-
-    const previewUrl = URL.createObjectURL(selectedImage);
-    setImagePreview(previewUrl);
-
-    return () => URL.revokeObjectURL(previewUrl);
-  }, [selectedImage]);
-
-  // Preview a replacement photo.
-  useEffect(() => {
-    if (!editSelectedImage) {
-      setEditImagePreview("");
-      return undefined;
-    }
-
-    const previewUrl = URL.createObjectURL(editSelectedImage);
-    setEditImagePreview(previewUrl);
-
-    return () => URL.revokeObjectURL(previewUrl);
-  }, [editSelectedImage]);
-
   function updateField(field, value) {
     setFormData((previous) => ({
       ...previous,
-      [field]: value
+      [field]: value,
     }));
   }
 
+  // Handle selecting an image for a new report.
   function handleImageChange(event) {
     const file = event.target.files?.[0];
+
     setFormMessage("");
 
-    if (!file) return;
+    if (!file) {
+      setSelectedImage(null);
+      setImagePreview("");
+      return;
+    }
 
     const message = validateImage(file);
 
     if (message) {
       setFormMessage(message);
+      setSelectedImage(null);
+      setImagePreview("");
       event.target.value = "";
       return;
     }
 
     setSelectedImage(file);
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      setImagePreview(
+        typeof reader.result === "string" ? reader.result : ""
+      );
+    };
+
+    reader.onerror = () => {
+      setImagePreview("");
+      setFormMessage(
+        "The image could not be previewed. Please choose another image."
+      );
+    };
+
+    reader.readAsDataURL(file);
   }
 
+  // Handle selecting a replacement image.
   function handleEditImageChange(event) {
     const file = event.target.files?.[0];
+
     setActionMessage("");
 
-    if (!file) return;
+    if (!file) {
+      setEditSelectedImage(null);
+      setEditImagePreview("");
+      return;
+    }
 
     const message = validateImage(file);
 
     if (message) {
       setActionMessage(message);
+      setEditSelectedImage(null);
+      setEditImagePreview("");
       event.target.value = "";
       return;
     }
 
     setEditSelectedImage(file);
+
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      setEditImagePreview(
+        typeof reader.result === "string" ? reader.result : ""
+      );
+    };
+
+    reader.onerror = () => {
+      setEditImagePreview("");
+      setActionMessage(
+        "The image could not be previewed. Please choose another image."
+      );
+    };
+
+    reader.readAsDataURL(file);
   }
 
+  // Upload an image to the backend.
   async function uploadImage(file) {
     const uploadData = new FormData();
+
     uploadData.append("image", file);
 
     const response = await fetch(`${API_URL}/upload`, {
       method: "POST",
-      body: uploadData
+      credentials: "include",
+      body: uploadData,
     });
 
     const data = await readResponse(response);
@@ -228,17 +467,23 @@ function App() {
       location: "",
       date: new Date().toISOString().split("T")[0],
       imageUrl: "",
-      contactInfo: ""
+      contactInfo: "",
     });
 
     setSelectedImage(null);
+    setImagePreview("");
 
     const input = document.getElementById("itemImage");
-    if (input) input.value = "";
+
+    if (input) {
+      input.value = "";
+    }
   }
 
+  // Submit a new lost or found report.
   async function handleSubmit(event) {
     event.preventDefault();
+
     if (submitting) return;
 
     setSubmitting(true);
@@ -253,13 +498,14 @@ function App() {
 
       const response = await fetch(API_URL, {
         method: "POST",
+        credentials: "include",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           ...formData,
-          imageUrl
-        })
+          imageUrl,
+        }),
       });
 
       const data = await readResponse(response);
@@ -273,7 +519,9 @@ function App() {
 
       setItems((previous) => [
         newItem,
-        ...previous.filter((item) => item._id !== newItem._id)
+        ...previous.filter(
+          (item) => item._id !== newItem._id
+        ),
       ]);
 
       resetReportForm();
@@ -281,6 +529,7 @@ function App() {
       setFilter("All");
       setStatusFilter("All");
       setSearch("");
+
       setFormMessage("Your report was submitted successfully!");
     } catch (err) {
       setFormMessage(
@@ -291,105 +540,101 @@ function App() {
     }
   }
 
-  const filteredItems = items.filter((item) => {
+  // Filter reports by keyword, type, and status.
+  const filteredItems = useMemo(() => {
     const keyword = search.toLowerCase().trim();
 
-    const searchableText = [
-      item.itemName,
-      item.location,
-      item.category,
-      item.description
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
+    return items.filter((item) => {
+      const searchableText = [
+        item.itemName,
+        item.location,
+        item.category,
+        item.description,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
 
-    const matchesSearch = searchableText.includes(keyword);
-    const matchesType = filter === "All" || item.type === filter;
-    const matchesStatus =
-      statusFilter === "All" ||
-      (item.status || "Open") === statusFilter;
+      const matchesSearch = searchableText.includes(keyword);
+      const matchesType = filter === "All" || item.type === filter;
 
-    return matchesSearch && matchesType && matchesStatus;
-  });
+      const matchesStatus =
+        statusFilter === "All" ||
+        (item.status || "Open") === statusFilter;
 
-  function getMatchScore(lostItem, foundItem) {
-    let score = 0;
+      return matchesSearch && matchesType && matchesStatus;
+    });
+  }, [items, search, filter, statusFilter]);
 
-    const normalize = (value) =>
-      String(value || "").toLowerCase().trim();
-
-    const lostName = normalize(lostItem.itemName);
-    const foundName = normalize(foundItem.itemName);
-
-    const lostWords = lostName
-      .split(/[^a-z0-9]+/)
-      .filter((word) => word.length > 2);
-
-    const foundWords = foundName
-      .split(/[^a-z0-9]+/)
-      .filter((word) => word.length > 2);
-
-    const commonWords = lostWords.filter((word) =>
-      foundWords.includes(word)
+  // Generate possible matches between open Lost and Found reports.
+  const possibleMatches = useMemo(() => {
+    const openItems = items.filter(
+      (item) => (item.status || "Open") === "Open" && item._id
     );
 
-    if (lostName && lostName === foundName) {
-      score += 3;
-    } else if (commonWords.length > 0) {
-      score += 2;
-    }
+    const lostItems = openItems.filter(
+      (item) => item.type === "Lost"
+    );
 
-    if (
-      normalize(lostItem.category) &&
-      normalize(lostItem.category) === normalize(foundItem.category)
-    ) {
-      score += 2;
-    }
+    const foundItems = openItems.filter(
+      (item) => item.type === "Found"
+    );
 
-    const lostLocation = normalize(lostItem.location);
-    const foundLocation = normalize(foundItem.location);
+    const threshold = Number(minimumMatchScore);
 
-    if (
-      lostLocation &&
-      foundLocation &&
-      lostLocation === foundLocation
-    ) {
-      score += 2;
-    } else if (
-      lostLocation &&
-      foundLocation &&
-      (lostLocation.includes(foundLocation) ||
-        foundLocation.includes(lostLocation))
-    ) {
-      score += 1;
-    }
+    return lostItems
+      .flatMap((lostItem) =>
+        foundItems
+          .filter(
+            (foundItem) => foundItem._id !== lostItem._id
+          )
+          .map((foundItem) => {
+            const details = getMatchDetails(
+              lostItem,
+              foundItem
+            );
 
-    return score;
-  }
+            return {
+              lostItem,
+              foundItem,
+              ...details,
+            };
+          })
+          .filter((match) => match.score >= threshold)
+      )
+      .filter((match) => {
+        if (matchFilter === "Strong") {
+          return match.score >= 8;
+        }
 
-  const openItems = items.filter(
-    (item) => (item.status || "Open") === "Open"
-  );
+        if (matchFilter === "Category") {
+          return (
+            normalize(match.lostItem.category) !== "" &&
+            normalize(match.lostItem.category) ===
+              normalize(match.foundItem.category)
+          );
+        }
 
-  const possibleMatches = openItems
-    .filter((item) => item.type === "Lost")
-    .flatMap((lostItem) =>
-      openItems
-        .filter(
-          (item) =>
-            item.type === "Found" &&
-            item._id !== lostItem._id
-        )
-        .map((foundItem) => ({
-          lostItem,
-          foundItem,
-          score: getMatchScore(lostItem, foundItem)
-        }))
-        .filter((match) => match.score >= 3)
-    )
-    .sort((a, b) => b.score - a.score);
+        if (matchFilter === "Location") {
+          return (
+            normalize(match.lostItem.location) !== "" &&
+            normalize(match.lostItem.location) ===
+              normalize(match.foundItem.location)
+          );
+        }
 
+        return true;
+      })
+      .sort(
+        (a, b) =>
+          b.score - a.score ||
+          String(b.lostItem.date || "").localeCompare(
+            String(a.lostItem.date || "")
+          )
+      );
+  }, [items, minimumMatchScore, matchFilter]);
+
+  // Confirm a possible Lost and Found match.
   async function confirmMatch(lostItem, foundItem) {
     if (actionLoading) return;
 
@@ -405,7 +650,10 @@ function App() {
     try {
       const response = await fetch(
         `${API_URL}/confirm-match/${lostItem._id}/${foundItem._id}`,
-        { method: "PUT" }
+        {
+          method: "PUT",
+          credentials: "include",
+        }
       );
 
       const data = await readResponse(response);
@@ -413,21 +661,15 @@ function App() {
 
       if (updatedItems.length) {
         setItems((previous) =>
-          previous.map((item) => {
-            const updated = updatedItems.find(
-              (record) => record._id === item._id
-            );
-            return updated || item;
-          })
+          previous.map(
+            (item) =>
+              updatedItems.find(
+                (record) => record._id === item._id
+              ) || item
+          )
         );
       } else {
-        const refreshResponse = await fetch(API_URL);
-        const refreshedData = await readResponse(refreshResponse);
-        const records = Array.isArray(refreshedData)
-          ? refreshedData
-          : refreshedData.items;
-
-        if (Array.isArray(records)) setItems(records);
+        await loadItems(false);
       }
 
       setActionMessage(
@@ -454,32 +696,38 @@ function App() {
     (item) => (item.status || "Open") === "Matched"
   ).length;
 
+  // Open the edit form on the Report page.
   function startEditing(item) {
     setEditingItem({
       ...item,
       date: item.date
         ? new Date(item.date).toISOString().split("T")[0]
-        : new Date().toISOString().split("T")[0]
+        : new Date().toISOString().split("T")[0],
     });
 
     setEditSelectedImage(null);
+    setEditImagePreview("");
     setActionMessage("");
     setShowForm(false);
+
+    navigate("/report");
 
     window.setTimeout(() => {
       document.getElementById("edit-item")?.scrollIntoView({
         behavior: "smooth",
-        block: "start"
+        block: "start",
       });
-    }, 0);
+    }, 200);
   }
 
   function cancelEditing() {
     setEditingItem(null);
     setEditSelectedImage(null);
+    setEditImagePreview("");
     setActionMessage("");
   }
 
+  // Save edits to an existing report.
   async function saveEdit(event) {
     event.preventDefault();
 
@@ -510,13 +758,14 @@ function App() {
 
       const response = await fetch(`${API_URL}/${_id}`, {
         method: "PUT",
+        credentials: "include",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           ...updates,
-          imageUrl
-        })
+          imageUrl,
+        }),
       });
 
       const data = await readResponse(response);
@@ -532,6 +781,8 @@ function App() {
 
       setEditingItem(null);
       setEditSelectedImage(null);
+      setEditImagePreview("");
+
       setActionMessage("Item and photo updated successfully!");
     } catch (err) {
       setActionMessage(
@@ -542,6 +793,7 @@ function App() {
     }
   }
 
+  // Delete a report.
   async function deleteItem(item) {
     if (!item._id) {
       setActionMessage("This item has no valid database ID.");
@@ -561,13 +813,16 @@ function App() {
 
     try {
       const response = await fetch(`${API_URL}/${item._id}`, {
-        method: "DELETE"
+        method: "DELETE",
+        credentials: "include",
       });
 
       const data = await readResponse(response);
 
       setItems((previous) =>
-        previous.filter((record) => record._id !== item._id)
+        previous.filter(
+          (record) => record._id !== item._id
+        )
       );
 
       if (editingItem?._id === item._id) {
@@ -592,92 +847,200 @@ function App() {
     ));
   }
 
-  return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-icon">🔎</div>
-          <div>
-            <h2>CampusFind</h2>
-            <p>Lost & Found System</p>
+  function renderPhotoField({ edit = false } = {}) {
+    const currentImage = edit
+      ? editingItem?.imageUrl
+      : "";
+
+    const preview = edit
+      ? editImagePreview
+      : imagePreview;
+
+    const inputId = edit
+      ? "editItemImage"
+      : "itemImage";
+
+    const disabled = edit
+      ? actionLoading
+      : submitting;
+
+    return (
+      <div className="full-width image-upload-field">
+        <label htmlFor={inputId}>
+          {edit
+            ? "Replace Item Photo"
+            : "Item Photo (optional)"}
+        </label>
+
+        <input
+          id={inputId}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={
+            edit
+              ? handleEditImageChange
+              : handleImageChange
+          }
+          disabled={disabled}
+        />
+
+        <small>
+          JPG, PNG, or WebP. Maximum size: 5 MB.
+        </small>
+
+        {(preview || currentImage) && (
+          <div
+            className={`image-preview ${
+              edit ? "edit-image-preview" : ""
+            }`}
+          >
+            <img
+              src={preview || getImageSrc(currentImage)}
+              alt={
+                preview
+                  ? "Selected item photo preview"
+                  : "Current item photo"
+              }
+              onError={(event) => {
+                event.currentTarget.style.display = "none";
+              }}
+            />
+
+            <button
+              type="button"
+              className="remove-image-button"
+              disabled={disabled}
+              onClick={() => {
+                if (edit) {
+                  if (preview) {
+                    setEditSelectedImage(null);
+                  } else {
+                    setEditingItem({
+                      ...editingItem,
+                      imageUrl: "",
+                    });
+                  }
+                } else {
+                  setSelectedImage(null);
+                  setImagePreview("");
+                }
+
+                if (edit && preview) {
+                  setEditImagePreview("");
+                }
+
+                const input =
+                  document.getElementById(inputId);
+
+                if (input) input.value = "";
+              }}
+            >
+              Remove photo
+            </button>
           </div>
-        </div>
+        )}
 
-        <p className="menu-label">MAIN MENU</p>
-
-        <a className="menu-item active" href="#dashboard">
-          <span>▦</span> Dashboard
-        </a>
-
-        <a className="menu-item" href="#items">
-          <span>⌕</span> Browse Items
-        </a>
-
-        <a className="menu-item" href="#matches">
-          <span>↔</span> Possible Matches
-        </a>
-
-        <a
-          className="menu-item"
-          href="#report"
-          onClick={() => {
-            setShowForm(true);
-            setFormMessage("");
-          }}
-        >
-          <span>＋</span> Report an Item
-        </a>
-
-        <a className="menu-item" href="#ai-assistant">
-          <span>✦</span> AI Assistant
-        </a>
-
-        <div className="sidebar-note">
-          <span>💡</span>
-          <h3>Lost something?</h3>
-          <p>
-            Search reported items and help reunite belongings
-            with their owners.
+        {!edit && (
+          <p className="image-upload-note">
+            A clear photo can help others identify the item.
           </p>
-        </div>
+        )}
+      </div>
+    );
+  }
 
-        <div className="sidebar-footer">
-          <div className="avatar">CF</div>
-          <div>
-            <strong>Campus Community</strong>
-            <small>Student Portal</small>
-          </div>
-        </div>
-      </aside>
+  return (
+    <div
+      className={`app page-${
+        currentPath.slice(1) || "dashboard"
+      }`}
+    >
+      <Navbar />
 
-      <main className="main-content" id="dashboard">
+      <main className="main-content">
         <header className="topbar">
           <div>
-            <p className="breadcrumb">Campus Portal / Dashboard</p>
-            <h1>Lost & Found Dashboard</h1>
+            <p className="breadcrumb">
+              Campus Portal / {currentTitle}
+            </p>
+
+            <h1>{currentTitle}</h1>
           </div>
-          <div className="top-status">
-            <span className="status-dot"></span>
-            Campus Community
+
+          <div className="topbar-actions">
+            <div className="top-status">
+              <span className="status-dot"></span>
+              Campus Community
+            </div>
+
+            {isAdmin && (
+              <button
+                type="button"
+                className="admin-approvals-nav-btn"
+                onClick={() =>
+                  window.dispatchEvent(
+                    new Event("campusfind:show-approvals")
+                  )
+                }
+              >
+                ♙ Admin Approvals
+              </button>
+            )}
+
+            <button
+              type="button"
+              className="logout-button"
+              onClick={() =>
+                window.dispatchEvent(
+                  new Event("campusfind:logout")
+                )
+              }
+            >
+              ↪ Log Out
+            </button>
           </div>
         </header>
 
-        <section className="welcome-banner">
+        {/* DASHBOARD WELCOME */}
+        <section
+          className="welcome-banner"
+          style={{
+            display: currentPath === "/" ? "" : "none",
+          }}
+        >
           <div>
-            <p className="eyebrow">WELCOME TO CAMPUSFIND</p>
-            <h2>Every item deserves to find its way home.</h2>
+            <p className="eyebrow">
+              WELCOME TO CAMPUSFIND
+            </p>
+
+            <h2>
+              Every item deserves to find its way home.
+            </h2>
+
             <p>
               Browse lost and found reports around your campus
               and help reconnect people with their belongings.
             </p>
-            <a href="#items" className="banner-button">
+
+            <button
+              type="button"
+              className="banner-button"
+              onClick={() => navigate("/browse")}
+            >
               Explore Items →
-            </a>
+            </button>
           </div>
+
           <div className="banner-art">🎒</div>
         </section>
 
-        <section className="stats-grid">
+        {/* DASHBOARD STATISTICS */}
+        <section
+          className="stats-grid"
+          style={{
+            display: currentPath === "/" ? "" : "none",
+          }}
+        >
           <div className="stat-card">
             <div className="stat-icon blue">▦</div>
             <p>Total Reports</p>
@@ -703,83 +1066,259 @@ function App() {
             <div className="stat-icon purple">♡</div>
             <p>Matched Items</p>
             <h2>{matchedCount}</h2>
-            <small>Potentially reunited</small>
+            <small>Reports marked matched</small>
           </div>
         </section>
 
-        <section className="matches-section" id="matches">
+        {/* POSSIBLE MATCHES PAGE */}
+        <section
+          className="matches-section"
+          id="matches"
+          style={{
+            display:
+              currentPath === "/matches" ? "" : "none",
+          }}
+        >
           <div className="section-heading">
             <div>
               <h2>Possible Matches</h2>
               <p>
-                Suggestions based on item names, categories, and locations.
+                Ranked suggestions using names, categories,
+                locations, and descriptions.
               </p>
             </div>
+
             <span className="result-count">
               {possibleMatches.length} suggestions
             </span>
           </div>
 
-          {possibleMatches.length === 0 ? (
+          <div className="match-controls">
+            <label>
+              Match strength
+              <select
+                value={minimumMatchScore}
+                onChange={(event) =>
+                  setMinimumMatchScore(event.target.value)
+                }
+              >
+                <option value="3">All suggestions</option>
+                <option value="5">Moderate or stronger</option>
+                <option value="8">Strong only</option>
+              </select>
+            </label>
+
+            <label>
+              Narrow by
+              <select
+                value={matchFilter}
+                onChange={(event) =>
+                  setMatchFilter(event.target.value)
+                }
+              >
+                <option value="All">All details</option>
+                <option value="Strong">Strong matches</option>
+                <option value="Category">Same category</option>
+                <option value="Location">Same location</option>
+              </select>
+            </label>
+          </div>
+
+          {loading && (
+            <p className="message">
+              Loading possible matches...
+            </p>
+          )}
+
+          {!loading && possibleMatches.length === 0 && (
             <div className="matches-empty">
               <span>🔎</span>
+
               <div>
-                <h3>No possible matches yet</h3>
+                <h3>No possible matches found</h3>
                 <p>
-                  When a Lost report and a Found report have similar
-                  details, suggestions will appear here.
+                  Try “All suggestions,” or add more details
+                  to Lost and Found reports. Only Open reports
+                  are considered.
                 </p>
               </div>
             </div>
-          ) : (
+          )}
+
+          {!loading && possibleMatches.length > 0 && (
             <div className="matches-grid">
               {possibleMatches.map(
-                ({ lostItem, foundItem, score }) => (
+                ({
+                  lostItem,
+                  foundItem,
+                  score,
+                  percentage,
+                  reasons,
+                }) => (
                   <article
                     className="match-card"
                     key={`${lostItem._id}-${foundItem._id}`}
                   >
                     <div className="match-card-heading">
-                      <span className="match-badge">Possible match</span>
-                      <span className="match-score">
-                        {score >= 6
-                          ? "Strong similarity"
-                          : "Some similarity"}
+                      <span className="match-badge">
+                        Possible match
                       </span>
+
+                      <span className="match-score">
+                        {score >= 8
+                          ? "Strong similarity"
+                          : score >= 5
+                            ? "Moderate similarity"
+                            : "Some similarity"}
+                      </span>
+                    </div>
+
+                    <div className="match-strength">
+                      <div className="match-strength-label">
+                        <span>Similarity score</span>
+                        <strong>{percentage}%</strong>
+                      </div>
+
+                      <div className="match-strength-track">
+                        <div
+                          className="match-strength-fill"
+                          style={{
+                            width: `${percentage}%`,
+                          }}
+                        />
+                      </div>
+
+                      <small>
+                        This is a ranking score, not a
+                        probability of a true match.
+                      </small>
                     </div>
 
                     <div className="match-pair">
                       <div className="match-item lost-match">
                         <small>LOST ITEM</small>
-                        <h3>{lostItem.itemName}</h3>
-                        <p>{lostItem.category || "Uncategorized"}</p>
+
+                        {lostItem.imageUrl && (
+                          <img
+                            className="match-item-image"
+                            src={getImageSrc(lostItem.imageUrl)}
+                            alt={
+                              lostItem.itemName || "Lost item"
+                            }
+                            onError={(event) => {
+                              event.currentTarget.style.display =
+                                "none";
+                            }}
+                          />
+                        )}
+
+                        <h3>
+                          {lostItem.itemName || "Unnamed item"}
+                        </h3>
+
                         <p>
-                          📍 {lostItem.location || "Location not provided"}
+                          {lostItem.category || "Uncategorized"}
                         </p>
+
+                        <p>
+                          📍{" "}
+                          {lostItem.location ||
+                            "Location not provided"}
+                        </p>
+
+                        {lostItem.description && (
+                          <p className="match-description">
+                            {lostItem.description}
+                          </p>
+                        )}
+
+                        <small>
+                          {lostItem.date
+                            ? new Date(
+                                lostItem.date
+                              ).toLocaleDateString()
+                            : "Date not provided"}
+                        </small>
                       </div>
 
                       <div className="match-arrow">↔</div>
 
                       <div className="match-item found-match">
                         <small>FOUND ITEM</small>
-                        <h3>{foundItem.itemName}</h3>
-                        <p>{foundItem.category || "Uncategorized"}</p>
+
+                        {foundItem.imageUrl && (
+                          <img
+                            className="match-item-image"
+                            src={getImageSrc(foundItem.imageUrl)}
+                            alt={
+                              foundItem.itemName || "Found item"
+                            }
+                            onError={(event) => {
+                              event.currentTarget.style.display =
+                                "none";
+                            }}
+                          />
+                        )}
+
+                        <h3>
+                          {foundItem.itemName || "Unnamed item"}
+                        </h3>
+
                         <p>
-                          📍 {foundItem.location || "Location not provided"}
+                          {foundItem.category || "Uncategorized"}
                         </p>
+
+                        <p>
+                          📍{" "}
+                          {foundItem.location ||
+                            "Location not provided"}
+                        </p>
+
+                        {foundItem.description && (
+                          <p className="match-description">
+                            {foundItem.description}
+                          </p>
+                        )}
+
+                        <small>
+                          {foundItem.date
+                            ? new Date(
+                                foundItem.date
+                              ).toLocaleDateString()
+                            : "Date not provided"}
+                        </small>
                       </div>
                     </div>
 
+                    <div className="match-reasons">
+                      <strong>Why it was suggested</strong>
+
+                      {reasons.length ? (
+                        <ul>
+                          {reasons.map((reason) => (
+                            <li key={reason}>{reason}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <p>
+                          Some item details are similar.
+                        </p>
+                      )}
+                    </div>
+
                     <p className="match-note">
-                      Compare the details and contact the reporter to
-                      verify. This is only an automated suggestion.
+                      Compare both reports carefully before
+                      confirming. Only confirm when you have
+                      verified that they refer to the same item.
                     </p>
 
                     <button
                       type="button"
                       className="confirm-match-button"
                       disabled={actionLoading}
-                      onClick={() => confirmMatch(lostItem, foundItem)}
+                      onClick={() =>
+                        confirmMatch(lostItem, foundItem)
+                      }
                     >
                       {actionLoading
                         ? "Processing..."
@@ -792,7 +1331,15 @@ function App() {
           )}
         </section>
 
-        <section className="report-section" id="report">
+        {/* REPORT ITEM PAGE */}
+        <section
+          className="report-section"
+          id="report"
+          style={{
+            display:
+              currentPath === "/report" ? "" : "none",
+          }}
+        >
           <div className="report-heading">
             <div>
               <h2>Have you lost or found something?</h2>
@@ -810,7 +1357,9 @@ function App() {
                 setFormMessage("");
               }}
             >
-              {showForm ? "Close Form −" : "+ Report an Item"}
+              {showForm
+                ? "Close Form −"
+                : "+ Report an Item"}
             </button>
           </div>
 
@@ -828,7 +1377,10 @@ function App() {
           )}
 
           {showForm && (
-            <form className="report-form" onSubmit={handleSubmit}>
+            <form
+              className="report-form"
+              onSubmit={handleSubmit}
+            >
               <div className="form-grid">
                 <label>
                   Item Name *
@@ -897,48 +1449,16 @@ function App() {
                   <input
                     value={formData.contactInfo}
                     onChange={(event) =>
-                      updateField("contactInfo", event.target.value)
+                      updateField(
+                        "contactInfo",
+                        event.target.value
+                      )
                     }
                     placeholder="Email or phone"
                   />
                 </label>
 
-                <div className="full-width image-upload-field">
-                  <label htmlFor="itemImage">Item Photo (optional)</label>
-                  <input
-                    id="itemImage"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={handleImageChange}
-                    disabled={submitting}
-                  />
-                  <small>JPG, PNG, or WebP. Maximum size: 5 MB.</small>
-
-                  {imagePreview && (
-                    <div className="image-preview">
-                      <img
-                        src={imagePreview}
-                        alt="Selected item preview"
-                      />
-                      <button
-                        type="button"
-                        className="remove-image-button"
-                        disabled={submitting}
-                        onClick={() => {
-                          setSelectedImage(null);
-                          const input = document.getElementById("itemImage");
-                          if (input) input.value = "";
-                        }}
-                      >
-                        Remove photo
-                      </button>
-                    </div>
-                  )}
-
-                  <p className="image-upload-note">
-                    A clear photo can help others identify the item.
-                  </p>
-                </div>
+                {renderPhotoField()}
 
                 <label className="full-width">
                   Description
@@ -946,7 +1466,10 @@ function App() {
                     rows="3"
                     value={formData.description}
                     onChange={(event) =>
-                      updateField("description", event.target.value)
+                      updateField(
+                        "description",
+                        event.target.value
+                      )
                     }
                     placeholder="Describe the item's color, brand, or identifying details..."
                   />
@@ -958,19 +1481,32 @@ function App() {
                 className="submit-report"
                 disabled={submitting}
               >
-                {submitting ? "Uploading and submitting..." : "Submit Report"}
+                {submitting
+                  ? "Uploading and submitting..."
+                  : "Submit Report"}
               </button>
             </form>
           )}
         </section>
 
+        {/* EDIT ITEM FORM */}
         {editingItem && (
-          <section className="report-section edit-section" id="edit-item">
+          <section
+            className="report-section edit-section"
+            id="edit-item"
+            style={{
+              display:
+                currentPath === "/report" ? "" : "none",
+            }}
+          >
             <div className="report-heading">
               <div>
                 <h2>Edit Item Report</h2>
-                <p>Update the report details or replace its photo.</p>
+                <p>
+                  Update the report details or replace its photo.
+                </p>
               </div>
+
               <button
                 type="button"
                 className="cancel-edit"
@@ -981,7 +1517,10 @@ function App() {
               </button>
             </div>
 
-            <form className="report-form" onSubmit={saveEdit}>
+            <form
+              className="report-form"
+              onSubmit={saveEdit}
+            >
               <div className="form-grid">
                 <label>
                   Item Name *
@@ -991,7 +1530,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        itemName: event.target.value
+                        itemName: event.target.value,
                       })
                     }
                   />
@@ -1004,7 +1543,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        type: event.target.value
+                        type: event.target.value,
                       })
                     }
                   >
@@ -1021,7 +1560,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        category: event.target.value
+                        category: event.target.value,
                       })
                     }
                   >
@@ -1037,7 +1576,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        location: event.target.value
+                        location: event.target.value,
                       })
                     }
                   />
@@ -1052,7 +1591,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        date: event.target.value
+                        date: event.target.value,
                       })
                     }
                   />
@@ -1065,7 +1604,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        status: event.target.value
+                        status: event.target.value,
                       })
                     }
                   >
@@ -1084,86 +1623,13 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        contactInfo: event.target.value
+                        contactInfo: event.target.value,
                       })
                     }
                   />
                 </label>
 
-                <div className="full-width image-upload-field edit-image-field">
-                  <label htmlFor="editItemImage">Replace Item Photo</label>
-                  <input
-                    id="editItemImage"
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    onChange={handleEditImageChange}
-                    disabled={actionLoading}
-                  />
-                  <small>
-                    JPG, PNG, or WebP up to 5 MB. Leave empty to keep the
-                    current photo.
-                  </small>
-
-                  {(editImagePreview || editingItem.imageUrl) && (
-                    <div className="image-preview edit-image-preview">
-                      <img
-                        src={
-                          editImagePreview ||
-                          getImageSrc(editingItem.imageUrl)
-                        }
-                        alt={
-                          editImagePreview
-                            ? "New photo preview"
-                            : "Current item photo"
-                        }
-                        onError={(event) => {
-                          event.currentTarget.style.display = "none";
-                        }}
-                      />
-
-                      <div className="edit-image-actions">
-                        {editSelectedImage && (
-                          <button
-                            type="button"
-                            className="remove-image-button"
-                            disabled={actionLoading}
-                            onClick={() => {
-                              setEditSelectedImage(null);
-                              const input = document.getElementById(
-                                "editItemImage"
-                              );
-                              if (input) input.value = "";
-                            }}
-                          >
-                            Cancel new photo
-                          </button>
-                        )}
-
-                        {editingItem.imageUrl && (
-                          <button
-                            type="button"
-                            className="remove-image-button"
-                            disabled={actionLoading}
-                            onClick={() => {
-                              setEditingItem({
-                                ...editingItem,
-                                imageUrl: ""
-                              });
-                              setEditSelectedImage(null);
-
-                              const input = document.getElementById(
-                                "editItemImage"
-                              );
-                              if (input) input.value = "";
-                            }}
-                          >
-                            Remove photo
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                {renderPhotoField({ edit: true })}
 
                 <label className="full-width">
                   Description
@@ -1173,7 +1639,7 @@ function App() {
                     onChange={(event) =>
                       setEditingItem({
                         ...editingItem,
-                        description: event.target.value
+                        description: event.target.value,
                       })
                     }
                   />
@@ -1185,7 +1651,9 @@ function App() {
                 className="submit-report"
                 disabled={actionLoading}
               >
-                {actionLoading ? "Saving changes..." : "Save Changes"}
+                {actionLoading
+                  ? "Saving changes..."
+                  : "Save Changes"}
               </button>
             </form>
           </section>
@@ -1197,7 +1665,15 @@ function App() {
           </p>
         )}
 
-        <section className="items-section" id="items">
+        {/* BROWSE ITEMS PAGE */}
+        <section
+          className="items-section"
+          id="items"
+          style={{
+            display:
+              currentPath === "/browse" ? "" : "none",
+          }}
+        >
           <div className="section-heading">
             <div>
               <h2>Browse Reported Items</h2>
@@ -1205,6 +1681,7 @@ function App() {
                 Find an item by name, category, location, or status.
               </p>
             </div>
+
             <span className="result-count">
               {filteredItems.length} items
             </span>
@@ -1213,11 +1690,14 @@ function App() {
           <div className="search-toolbar">
             <div className="search-box">
               <span>⌕</span>
+
               <input
                 type="text"
                 placeholder="Search items or locations..."
                 value={search}
-                onChange={(event) => setSearch(event.target.value)}
+                onChange={(event) =>
+                  setSearch(event.target.value)
+                }
               />
             </div>
 
@@ -1227,7 +1707,9 @@ function App() {
                   type="button"
                   key={type}
                   className={
-                    filter === type ? "filter-btn selected" : "filter-btn"
+                    filter === type
+                      ? "filter-btn selected"
+                      : "filter-btn"
                   }
                   onClick={() => setFilter(type)}
                 >
@@ -1237,13 +1719,19 @@ function App() {
             </div>
 
             <div className="status-filter">
-              <label htmlFor="statusFilter">Item Status</label>
+              <label htmlFor="statusFilter">
+                Item Status
+              </label>
+
               <select
                 id="statusFilter"
                 value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
+                onChange={(event) =>
+                  setStatusFilter(event.target.value)
+                }
               >
                 <option value="All">All Statuses</option>
+
                 {ITEM_STATUSES.map((status) => (
                   <option key={status} value={status}>
                     {status}
@@ -1253,31 +1741,48 @@ function App() {
             </div>
           </div>
 
-          {loading && <p className="message">Loading reported items...</p>}
-          {error && <p className="message error">{error}</p>}
-
-          {!loading && !error && filteredItems.length === 0 && (
-            <div className="empty-state">
-              <span>🔍</span>
-              <h3>No items found</h3>
-              <p>
-                Try a different search or select another type or status filter.
-              </p>
-            </div>
+          {loading && (
+            <p className="message">
+              Loading reported items...
+            </p>
           )}
+
+          {error && (
+            <p className="message error">{error}</p>
+          )}
+
+          {!loading &&
+            !error &&
+            filteredItems.length === 0 && (
+              <div className="empty-state">
+                <span>🔍</span>
+                <h3>No items found</h3>
+                <p>
+                  Try a different search or select another
+                  type or status filter.
+                </p>
+              </div>
+            )}
 
           <div className="items-grid">
             {filteredItems.map((item) => (
-              <article className="item-card" key={item._id || item.id}>
+              <article
+                className="item-card"
+                key={item._id || item.id}
+              >
                 <div className="item-card-top">
                   <div className="item-placeholder">
                     {item.imageUrl ? (
                       <img
                         src={getImageSrc(item.imageUrl)}
-                        alt={item.itemName || "Reported item"}
+                        alt={
+                          item.itemName || "Reported item"
+                        }
                         loading="lazy"
                         onError={(event) => {
-                          event.currentTarget.style.display = "none";
+                          event.currentTarget.style.display =
+                            "none";
+
                           event.currentTarget.parentElement.classList.add(
                             "image-unavailable"
                           );
@@ -1302,22 +1807,31 @@ function App() {
                     {item.category || "Uncategorized"}
                   </span>
 
-                  <h3>{item.itemName || "Unnamed item"}</h3>
+                  <h3>
+                    {item.itemName || "Unnamed item"}
+                  </h3>
 
                   <p className="item-description">
-                    {item.description || "No description provided."}
+                    {item.description ||
+                      "No description provided."}
                   </p>
 
                   <div className="item-meta">
                     <span>
-                      📍 {item.location || "Location not provided"}
+                      📍{" "}
+                      {item.location ||
+                        "Location not provided"}
                     </span>
+
                     <span>
                       📅{" "}
                       {item.date
-                        ? new Date(item.date).toLocaleDateString()
+                        ? new Date(
+                            item.date
+                          ).toLocaleDateString()
                         : "Date not provided"}
                     </span>
+
                     {item.contactInfo && (
                       <span>✉️ {item.contactInfo}</span>
                     )}
@@ -1331,7 +1845,10 @@ function App() {
                     >
                       {item.status || "Open"}
                     </span>
-                    <span className="item-reference">Campus report</span>
+
+                    <span className="item-reference">
+                      Campus report
+                    </span>
                   </div>
 
                   <div className="item-actions">
@@ -1358,24 +1875,34 @@ function App() {
           </div>
         </section>
 
-        {/* CAMPUSFIND AI CHATBOT */}
-        <section className="ai-assistant-section" id="ai-assistant">
+        {/* AI ASSISTANT PAGE */}
+        <section
+          className="ai-assistant-section"
+          id="ai-assistant"
+          style={{
+            display:
+              currentPath === "/assistant" ? "" : "none",
+          }}
+        >
           <div className="section-heading">
             <div>
               <h2>CampusFind AI Assistant</h2>
               <p>
-                Get guidance about lost and found items with your local AI
-                assistant.
+                Get guidance about lost and found items
+                with your local AI assistant.
               </p>
             </div>
-            <span className="result-count">AI Assistant</span>
+
+            <span className="result-count">
+              AI Assistant
+            </span>
           </div>
 
           <Chatbot />
         </section>
 
         <footer className="page-footer">
-          CampusFind · Lost & Found Matching System
+          CampusFind · Lost &amp; Found Matching System
         </footer>
       </main>
     </div>

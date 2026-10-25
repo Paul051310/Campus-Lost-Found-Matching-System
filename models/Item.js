@@ -6,44 +6,64 @@ const itemSchema = new mongoose.Schema(
     itemName: {
       type: String,
       required: true,
-      trim: true
+      trim: true,
     },
+
     type: {
       type: String,
       enum: ["Lost", "Found"],
-      required: true
+      required: true,
     },
+
     category: {
       type: String,
-      required: true
+      required: true,
+      trim: true,
     },
+
     description: {
       type: String,
-      default: ""
+      default: "",
+      trim: true,
     },
+
     location: {
       type: String,
-      required: true
+      required: true,
+      trim: true,
     },
+
     date: {
       type: Date,
-      required: true
+      required: true,
     },
+
     imageUrl: {
       type: String,
-      default: ""
+      default: "",
     },
+
     contactInfo: {
       type: String,
-      default: ""
+      default: "",
     },
+
+    campusId: {
+      type: String,
+      required: true,
+      default: "college-of-maasin",
+      immutable: true,
+    },
+
     status: {
       type: String,
       enum: ["Open", "Matched", "Claimed"],
-      default: "Open"
-    }
+      default: "Open",
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+  }
 );
 
 module.exports = mongoose.model("Item", itemSchema);
