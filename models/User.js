@@ -1,4 +1,3 @@
-
 const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
@@ -78,12 +77,10 @@ const userSchema = new mongoose.Schema(
 );
 
 // Normalize email addresses before saving.
-userSchema.pre("save", function (next) {
+userSchema.pre("save", function () {
   if (this.isModified("email") && this.email) {
     this.email = this.email.trim().toLowerCase();
   }
-
-  next();
 });
 
 module.exports = mongoose.model("User", userSchema);
