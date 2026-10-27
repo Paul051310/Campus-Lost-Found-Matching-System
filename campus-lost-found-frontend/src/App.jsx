@@ -1,4 +1,3 @@
-
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import "./App.css";
@@ -7,6 +6,7 @@ import Navbar from "./pages/Navbar";
 
 const API_URL = "http://localhost:5000/api/items";
 const SERVER_URL = "http://localhost:5000";
+const AUTH_URL = "http://localhost:5000/api/auth";
 
 const CATEGORIES = [
   "Electronics",
@@ -219,6 +219,8 @@ function App({ user, isAdmin = false }) {
     "/matches": "Possible Matches",
     "/report": "Report an Item",
     "/assistant": "AI Assistant",
+    "/history": "Claim History",
+    "/students": "Registered Students",
   };
 
   const currentTitle = pageTitles[currentPath] || pageTitles["/"];
@@ -233,6 +235,13 @@ function App({ user, isAdmin = false }) {
   const [editingItem, setEditingItem] = useState(null);
   const [actionMessage, setActionMessage] = useState("");
   const [actionLoading, setActionLoading] = useState(false);
+  const [claimingItemId, setClaimingItemId] = useState(null);
+  const [claimText, setClaimText] = useState("");
+  const [historyOpenId, setHistoryOpenId] = useState(null);
+
+  const [claimHistory, setClaimHistory] = useState([]);
+  const [students, setStudents] = useState([]);
+  const [studentSearch, setStudentSearch] = useState("");
 
   const [editSelectedImage, setEditSelectedImage] = useState(null);
   const [editImagePreview, setEditImagePreview] = useState("");
@@ -305,6 +314,76 @@ function App({ user, isAdmin = false }) {
     }
   }
 
+  // Load the claim history (admin only).
+  async function loadHistory() {
+    try {
+      const response = await fetch(`${API_URL}/claims/history`, {
+        credentials: "include",
+      });
+
+      const data = await readResponse(response);
+
+      setClaimHistory(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setActionMessage(
+        err.message || "Could not load claim history."
+      );
+    }
+  }
+
+  // Admin: load every registered student.
+  async function loadStudents() {
+    try {
+      const response = await fetch(`${AUTH_URL}/students`, {
+        credentials: "include",
+      });
+
+      const data = await readResponse(response);
+
+      setStudents(Array.isArray(data.students) ? data.students : []);
+    } catch (err) {
+      setActionMessage(
+        err.message || "Could not load the student list."
+      );
+    }
+  }
+
+  // Admin: set a new password for a student.
+  async function resetStudentPassword(student) {
+    const newPassword = window.prompt(
+      `Type a new password for ${student.fullName} (8 to 72 characters):`
+    );
+
+    if (newPassword === null) return;
+
+    if (newPassword.length < 8 || newPassword.length > 72) {
+      setActionMessage(
+        "The password must be between 8 and 72 characters."
+      );
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `${AUTH_URL}/${student.id}/password`,
+        {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ newPassword }),
+        }
+      );
+
+      const data = await readResponse(response);
+
+      setActionMessage(data.message || "Password updated.");
+    } catch (err) {
+      setActionMessage(
+        err.message || "Could not update the password."
+      );
+    }
+  }
+
   // Load items when the application starts.
   useEffect(() => {
     let cancelled = false;
@@ -345,6 +424,22 @@ function App({ user, isAdmin = false }) {
       cancelled = true;
     };
   }, []);
+
+  // Load the student list each time the Students page is opened.
+  useEffect(() => {
+    if (currentPath === "/students" && isAdmin) {
+      loadStudents();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath, isAdmin]);
+
+  // Load the history each time the History page is opened.
+  useEffect(() => {
+    if (currentPath === "/history") {
+      loadHistory();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath]);
 
   function updateField(field, value) {
     setFormData((previous) => ({
@@ -839,6 +934,89 @@ function App({ user, isAdmin = false }) {
     }
   }
 
+  // Submit a claim on a found item.
+  async function submitClaim(item) {
+    if (actionLoading) return;
+
+    if (claimText.trim().length < 5) {
+      setActionMessage("Please describe why this item is yours (at least 5 characters).");
+      return;
+    }
+
+    setActionLoading(true);
+    setActionMessage("");
+
+    try {
+      const response = await fetch(`${API_URL}/${item._id}/claims`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: claimText.trim() }),
+      });
+
+      const data = await readResponse(response);
+
+      setItems((previous) =>
+        previous.map((record) =>
+          record._id === item._id ? { ...record, ...data.item } : record
+        )
+      );
+
+      setClaimingItemId(null);
+      setClaimText("");
+      setHistoryOpenId(item._id);
+      setActionMessage(data.message || "Claim submitted!");
+    } catch (err) {
+      setActionMessage(err.message || "Claim failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
+  // Admin: approve or reject a claim.
+  // An approved claim removes the item (the server moves it to history).
+  async function reviewClaim(item, claim, decision) {
+    if (actionLoading) return;
+
+    setActionLoading(true);
+    setActionMessage("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/${item._id}/claims/${claim._id}`,
+        {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision }),
+        }
+      );
+
+      const data = await readResponse(response);
+
+      if (data.removedItemId) {
+        setItems((previous) =>
+          previous.filter(
+            (record) => record._id !== data.removedItemId
+          )
+        );
+        setHistoryOpenId(null);
+      } else {
+        setItems((previous) =>
+          previous.map((record) =>
+            record._id === item._id ? { ...record, ...data.item } : record
+          )
+        );
+      }
+
+      setActionMessage(data.message || "Claim updated.");
+    } catch (err) {
+      setActionMessage(err.message || "Review failed.");
+    } finally {
+      setActionLoading(false);
+    }
+  }
+
   function renderCategoryOptions() {
     return CATEGORIES.map((category) => (
       <option key={category} value={category}>
@@ -972,6 +1150,24 @@ function App({ user, isAdmin = false }) {
               <span className="status-dot"></span>
               Campus Community
             </div>
+
+            <button
+              type="button"
+              className="admin-approvals-nav-btn"
+              onClick={() => navigate("/history")}
+            >
+              ☰ Claim History
+            </button>
+
+            {isAdmin && (
+              <button
+                type="button"
+                className="admin-approvals-nav-btn"
+                onClick={() => navigate("/students")}
+              >
+                👥 Students
+              </button>
+            )}
 
             {isAdmin && (
               <button
@@ -1851,7 +2047,124 @@ function App({ user, isAdmin = false }) {
                     </span>
                   </div>
 
-                  <div className="item-actions">
+                  {item.type === "Found" &&
+                    item.status !== "Claimed" &&
+                    (claimingItemId === item._id ? (
+                      <div className="claim-form">
+                        <textarea
+                          rows="3"
+                          maxLength="500"
+                          placeholder="Why is this yours? Describe something only the owner would know."
+                          value={claimText}
+                          onChange={(event) => setClaimText(event.target.value)}
+                        />
+
+                        <div className="claim-form-buttons">
+                          <button
+                            type="button"
+                            className="claim-submit"
+                            disabled={actionLoading}
+                            onClick={() => submitClaim(item)}
+                          >
+                            Send claim
+                          </button>
+
+                          <button
+                            type="button"
+                            className="claim-cancel"
+                            onClick={() => {
+                              setClaimingItemId(null);
+                              setClaimText("");
+                            }}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="claim-button"
+                        onClick={() => {
+                          setClaimingItemId(item._id);
+                          setClaimText("");
+                        }}
+                      >
+                        This is mine - Claim it
+                      </button>
+                    ))}
+
+                  {item.claims && item.claims.length > 0 && (
+                    <div className="claim-history">
+                      <button
+                        type="button"
+                        className="history-toggle"
+                        onClick={() =>
+                          setHistoryOpenId(
+                            historyOpenId === item._id ? null : item._id
+                          )
+                        }
+                      >
+                        Claim history ({item.claims.length})
+                      </button>
+
+                      {historyOpenId === item._id && (
+                        <ul className="history-list">
+                          {item.claims.map((claim) => (
+                            <li key={claim._id}>
+                              <div className="history-row">
+                                <strong>{claim.claimantName}</strong>
+                                <span
+                                  className={`claim-status ${String(
+                                    claim.status
+                                  ).toLowerCase()}`}
+                                >
+                                  {claim.status}
+                                </span>
+                              </div>
+
+                              <p>{claim.message}</p>
+
+                              <small>
+                                {new Date(claim.createdAt).toLocaleString()}
+                                {claim.reviewedByName
+                                  ? ` - reviewed by ${claim.reviewedByName}`
+                                  : ""}
+                              </small>
+
+                              {isAdmin && claim.status === "Pending" && (
+                                <div className="claim-review">
+                                  <button
+                                    type="button"
+                                    className="approve-button"
+                                    disabled={actionLoading}
+                                    onClick={() =>
+                                      reviewClaim(item, claim, "Approved")
+                                    }
+                                  >
+                                    Approve
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    className="reject-button"
+                                    disabled={actionLoading}
+                                    onClick={() =>
+                                      reviewClaim(item, claim, "Rejected")
+                                    }
+                                  >
+                                    Reject
+                                  </button>
+                                </div>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="item-actions" style={{ display: item.canModify ? "" : "none" }}>
                     <button
                       type="button"
                       className="edit-button"
@@ -1873,6 +2186,208 @@ function App({ user, isAdmin = false }) {
               </article>
             ))}
           </div>
+        </section>
+
+        {/* CLAIM HISTORY PAGE (ADMIN ONLY) */}
+        <section
+          className="items-section"
+          id="claim-history"
+          style={{
+            display:
+              currentPath === "/history" ? "" : "none",
+          }}
+        >
+          <div className="section-heading">
+            <div>
+              <h2>Claim History</h2>
+              <p>
+                Items that were claimed and returned to their
+                owners.
+              </p>
+            </div>
+
+            <span className="result-count">
+              {claimHistory.length} records
+            </span>
+          </div>
+
+          {!isAdmin && (
+            <p className="message">
+              Showing only the items you claimed.
+            </p>
+          )}
+
+          {claimHistory.length === 0 && (
+            <p className="message">No claimed items yet.</p>
+          )}
+
+          <div className="items-grid">
+            {claimHistory.map((entry) => (
+              <article className="item-card" key={entry._id}>
+                <div className="item-details">
+                  {entry.imageUrl && (
+                    <img
+                      className="match-item-image"
+                      src={getImageSrc(entry.imageUrl)}
+                      alt={entry.itemName || "Claimed item"}
+                      onError={(event) => {
+                        event.currentTarget.style.display =
+                          "none";
+                      }}
+                    />
+                  )}
+
+                  <span className="category-label">
+                    {entry.category || "Uncategorized"}
+                  </span>
+
+                  <h3>{entry.itemName || "Unnamed item"}</h3>
+
+                  <p>
+                    📍 {entry.location || "Location not provided"}
+                  </p>
+
+                  <p>
+                    Claimed by{" "}
+                    <strong>
+                      {entry.approvedClaim?.claimantName ||
+                        "Unknown"}
+                    </strong>
+                  </p>
+
+                  <p className="item-description">
+                    {entry.approvedClaim?.message}
+                  </p>
+
+                  <small>
+                    Approved by {entry.approvedByName || "admin"}{" "}
+                    on{" "}
+                    {entry.approvedAt
+                      ? new Date(
+                          entry.approvedAt
+                        ).toLocaleString()
+                      : "unknown date"}
+                  </small>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        {/* REGISTERED STUDENTS PAGE (ADMIN ONLY) */}
+        <section
+          className="items-section"
+          id="students"
+          style={{
+            display:
+              currentPath === "/students" ? "" : "none",
+          }}
+        >
+          <div className="section-heading">
+            <div>
+              <h2>Registered Students</h2>
+              <p>
+                See every student account and set a new password
+                when a student forgets theirs.
+              </p>
+            </div>
+
+            <span className="result-count">
+              {students.length} students
+            </span>
+          </div>
+
+          {!isAdmin && (
+            <p className="message error">
+              Only administrators can view this page.
+            </p>
+          )}
+
+          {isAdmin && (
+            <>
+              <div className="search-toolbar">
+                <div className="search-box">
+                  <span>⌕</span>
+
+                  <input
+                    type="text"
+                    placeholder="Search by name, email, or student ID..."
+                    value={studentSearch}
+                    onChange={(event) =>
+                      setStudentSearch(event.target.value)
+                    }
+                  />
+                </div>
+              </div>
+
+              {students.length === 0 && (
+                <p className="message">
+                  No registered students yet.
+                </p>
+              )}
+
+              <div className="items-grid">
+                {students
+                  .filter((student) =>
+                    [
+                      student.fullName,
+                      student.email,
+                      student.studentId,
+                    ]
+                      .join(" ")
+                      .toLowerCase()
+                      .includes(
+                        studentSearch.toLowerCase().trim()
+                      )
+                  )
+                  .map((student) => (
+                    <article
+                      className="item-card"
+                      key={student.id}
+                    >
+                      <div className="item-details">
+                        <span className="category-label">
+                          {student.courseYear}
+                        </span>
+
+                        <h3>{student.fullName}</h3>
+
+                        <p>✉️ {student.email}</p>
+                        <p>🪪 ID: {student.studentId}</p>
+
+                        <div className="item-card-footer">
+                          <span
+                            className={`item-status ${String(
+                              student.status
+                            ).toLowerCase()}`}
+                          >
+                            {student.status}
+                          </span>
+
+                          {student.resetRequested && (
+                            <span className="item-status matched">
+                              Password reset requested
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="item-actions">
+                          <button
+                            type="button"
+                            className="edit-button"
+                            onClick={() =>
+                              resetStudentPassword(student)
+                            }
+                          >
+                            🔑 Set new password
+                          </button>
+                        </div>
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            </>
+          )}
         </section>
 
         {/* AI ASSISTANT PAGE */}

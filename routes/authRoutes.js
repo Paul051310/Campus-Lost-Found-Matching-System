@@ -1,9 +1,9 @@
-
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const User = require("../models/User");
+const PasswordResetRequest = require("../models/PasswordResetRequest");
 
 const router = express.Router();
 
@@ -21,6 +21,30 @@ const loginLimiter = rateLimit({
     message: "Too many login attempts. Please try again in 15 minutes."
   }
 });
+
+// Limit repeated account-recovery attempts.
+const recoveryLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    message: "Too many recovery attempts. Please try again in 15 minutes."
+  }
+});
+
+// Hide most of an email address, e.g. john@gmail.com -> j***@g***.com
+function maskEmail(email) {
+  const [local = "", domain = ""] = String(email).split("@");
+  const [domainName = "", ...rest] = domain.split(".");
+
+  const mask = (text) =>
+    text.length <= 1 ? `${text}***` : `${text[0]}***`;
+
+  return `${mask(local)}@${mask(domainName)}${
+    rest.length ? `.${rest.join(".")}` : ""
+  }`;
+}
 
 // Shared cookie options.
 function getCookieOptions() {
@@ -280,6 +304,110 @@ router.post("/login", loginLimiter, async (req, res) => {
 });
 
 // =========================================
+// FORGOT EMAIL
+// POST /api/auth/find-email
+// The student proves who they are with their student ID and
+// full name, and sees a hidden version of their email.
+// =========================================
+router.post("/find-email", recoveryLimiter, async (req, res) => {
+  try {
+    const { studentId, fullName } = req.body || {};
+
+    if (
+      typeof studentId !== "string" ||
+      typeof fullName !== "string" ||
+      !studentId.trim() ||
+      !fullName.trim()
+    ) {
+      return res.status(400).json({
+        message: "Enter your student ID and full name."
+      });
+    }
+
+    const user = await User.findOne({
+      studentId: studentId.trim(),
+      role: "student",
+      campusId: CAMPUS_ID
+    });
+
+    const nameMatches =
+      user &&
+      String(user.fullName).trim().toLowerCase() ===
+        fullName.trim().toLowerCase();
+
+    if (!nameMatches) {
+      return res.status(404).json({
+        message:
+          "No matching account was found. Check your student ID and full name."
+      });
+    }
+
+    return res.status(200).json({
+      message: "We found your account.",
+      emailHint: maskEmail(user.email)
+    });
+  } catch (error) {
+    console.error("Find email error:", error.message);
+
+    return res.status(500).json({
+      message: "Unable to look up your account right now."
+    });
+  }
+});
+
+// =========================================
+// FORGOT PASSWORD
+// POST /api/auth/forgot-password
+// Sends a request to the administrator, who sets a new password.
+// The answer is always the same, so nobody can use this
+// to find out which emails are registered.
+// =========================================
+router.post("/forgot-password", recoveryLimiter, async (req, res) => {
+  try {
+    const { email } = req.body || {};
+
+    if (typeof email !== "string" || !email.trim()) {
+      return res.status(400).json({
+        message: "Enter your email address."
+      });
+    }
+
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+      role: "student",
+      campusId: CAMPUS_ID
+    });
+
+    if (user) {
+      const alreadyWaiting = await PasswordResetRequest.findOne({
+        userId: user._id,
+        status: "pending"
+      });
+
+      if (!alreadyWaiting) {
+        await PasswordResetRequest.create({
+          userId: user._id,
+          email: user.email,
+          fullName: user.fullName,
+          studentId: user.studentId
+        });
+      }
+    }
+
+    return res.status(200).json({
+      message:
+        "If that email is registered, the administrator has been notified and will set a new password for you."
+    });
+  } catch (error) {
+    console.error("Forgot password error:", error.message);
+
+    return res.status(500).json({
+      message: "Unable to send your request right now."
+    });
+  }
+});
+
+// =========================================
 // GET CURRENT LOGGED-IN USER
 // =========================================
 router.get("/me", async (req, res) => {
@@ -359,6 +487,102 @@ router.get("/pending", requireAdmin, async (req, res) => {
 
     return res.status(500).json({
       message: "Unable to load pending student accounts."
+    });
+  }
+});
+
+// =========================================
+// ADMIN: LIST ALL REGISTERED STUDENTS
+// GET /api/auth/students
+// Passwords are never returned (they are stored hashed).
+// =========================================
+router.get("/students", requireAdmin, async (req, res) => {
+  try {
+    const students = await User.find({
+      role: "student",
+      campusId: CAMPUS_ID
+    })
+      .select("-passwordHash")
+      .sort({ createdAt: -1 });
+
+    const waitingRequests = await PasswordResetRequest.find({
+      status: "pending"
+    }).select("userId");
+
+    const requested = new Set(
+      waitingRequests.map((request) => String(request.userId))
+    );
+
+    return res.status(200).json({
+      students: students.map((student) => ({
+        ...publicUser(student),
+        createdAt: student.createdAt,
+        resetRequested: requested.has(String(student._id))
+      }))
+    });
+  } catch (error) {
+    console.error("List students error:", error.message);
+
+    return res.status(500).json({
+      message: "Unable to load the student list."
+    });
+  }
+});
+
+// =========================================
+// ADMIN: SET A NEW PASSWORD FOR A STUDENT
+// PATCH /api/auth/:userId/password
+// =========================================
+router.patch("/:userId/password", requireAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { newPassword } = req.body || {};
+
+    if (!/^[a-f\d]{24}$/i.test(userId)) {
+      return res.status(400).json({
+        message: "Invalid student account ID."
+      });
+    }
+
+    if (
+      typeof newPassword !== "string" ||
+      newPassword.length < 8 ||
+      newPassword.length > 72
+    ) {
+      return res.status(400).json({
+        message: "Password must be between 8 and 72 characters."
+      });
+    }
+
+    const student = await User.findOne({
+      _id: userId,
+      role: "student",
+      campusId: CAMPUS_ID
+    }).select("+passwordHash");
+
+    if (!student) {
+      return res.status(404).json({
+        message: "Student account not found."
+      });
+    }
+
+    student.passwordHash = await bcrypt.hash(newPassword, 12);
+    await student.save();
+
+    // Any waiting "forgot password" request is now finished.
+    await PasswordResetRequest.updateMany(
+      { userId: student._id, status: "pending" },
+      { $set: { status: "done" } }
+    );
+
+    return res.status(200).json({
+      message: `Password updated for ${student.fullName}.`
+    });
+  } catch (error) {
+    console.error("Reset password error:", error.message);
+
+    return res.status(500).json({
+      message: "Unable to update this password."
     });
   }
 });

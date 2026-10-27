@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const Item = require("../models/Item");
+const ClaimHistory = require("../models/ClaimHistory");
 
 const OLLAMA_URL = "http://127.0.0.1:11434/api/chat";
 const MODEL_NAME = "llama3.2:1b";
@@ -143,6 +144,38 @@ function getMatchingAnswer(text) {
   ].join("\n");
 }
 
+// Claimed items are moved out of the items list into Claim History,
+// so questions about them must be answered from Claim History.
+function isClaimedQuestion(text) {
+  return (
+    /\b(claimed|claim history|returned items?)\b/i.test(text) &&
+    !/\bhow\b/i.test(text)
+  );
+}
+
+function formatClaimedAnswer(records) {
+  if (records.length === 0) {
+    return "No items have been claimed yet.";
+  }
+
+  const lines = records.map((entry, index) =>
+    [
+      `${index + 1}. ${entry.itemName || "Unnamed item"}`,
+      `   Category: ${entry.category || "Not specified"}`,
+      `   Location: ${entry.location || "Not specified"}`,
+      `   Claimed on: ${formatDate(entry.approvedAt)}`
+    ].join("\n")
+  );
+
+  return [
+    `${records.length} item${records.length === 1 ? " has" : "s have"} been claimed and returned:`,
+    "",
+    ...lines.flatMap((line, index) => (index === 0 ? [line] : ["", line])),
+    "",
+    'Full details are on the "Claim History" page.'
+  ].join("\n");
+}
+
 function isCountQuestion(text) {
   return /\b(how many|count|total|number of|statistics|stats)\b/i.test(text);
 }
@@ -227,6 +260,17 @@ router.post("/", async (req, res) => {
       return res.json({ reply: matchingAnswer });
     }
 
+    // Claimed items: answer from Claim History.
+    if (isClaimedQuestion(text)) {
+      const records = await ClaimHistory.find()
+        .select("itemName category location approvedAt")
+        .sort({ approvedAt: -1 })
+        .limit(20)
+        .lean();
+
+      return res.json({ reply: formatClaimedAnswer(records) });
+    }
+
     const asksForCount = isCountQuestion(text);
     const asksForStatus = isStatusQuestion(text);
     const asksForReports = isReportSearch(text);
@@ -302,7 +346,7 @@ router.post("/", async (req, res) => {
         query.type = "Found";
       }
 
-      const statusMatch = text.match(/\b(open|matched|claimed)\b/i);
+      const statusMatch = text.match(/\b(open|matched)\b/i);
 
       if (statusMatch) {
         query.status =

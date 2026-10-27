@@ -242,7 +242,7 @@ export default function Register({ onBackToLogin }) {
 
             <div style={{ marginBottom: "15px" }}>
               <label style={labelStyle} htmlFor="email">
-                School Email
+                Your Email
               </label>
               <input
                 id="email"
