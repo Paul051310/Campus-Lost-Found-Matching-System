@@ -266,27 +266,7 @@ function App({ user, isAdmin = false }) {
     contactInfo: "",
   });
 
-  // IMPORTANT:
-  // When the app is loaded or refreshed directly on a subpage,
-  // redirect to the Dashboard. Normal in-app navigation is unaffected.
-  useEffect(() => {
-    if (window.performance?.getEntriesByType) {
-      const navigationEntries =
-        window.performance.getEntriesByType("navigation");
-
-      const navigationType = navigationEntries[0]?.type;
-
-      if (
-        location.pathname !== "/" &&
-        (navigationType === "reload" ||
-          navigationType === "navigate")
-      ) {
-        navigate("/", { replace: true });
-      }
-    }
-    // Run only when the app first mounts.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  
 
   // Load reported items from the backend.
   async function loadItems(showLoading = true) {
