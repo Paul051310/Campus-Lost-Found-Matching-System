@@ -1,7 +1,8 @@
 
 import { useState } from "react";
 
-const AUTH_URL = "http://localhost:5000/api/auth";
+   import { SERVER_URL } from "./config";
+   const AUTH_URL = `${SERVER_URL}/api/auth`;
 
 export default function Register({ onBackToLogin }) {
   const [form, setForm] = useState({

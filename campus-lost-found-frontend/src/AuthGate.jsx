@@ -6,7 +6,8 @@ import Login from "./Login";
 import Register from "./Register";
 import AdminApprovals from "./AdminApprovals";
 
-const AUTH_URL = "http://localhost:5000/api/auth";
+   import { SERVER_URL } from "./config";
+   const AUTH_URL = `${SERVER_URL}/api/auth`;
 const CAMPUS_ID = "college-of-maasin";
 
 export default function AuthGate() {

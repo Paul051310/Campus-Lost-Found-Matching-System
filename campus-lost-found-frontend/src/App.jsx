@@ -4,9 +4,9 @@ import "./App.css";
 import Chatbot from "./Chatbot";
 import Navbar from "./pages/Navbar";
 
-const API_URL = "http://localhost:5000/api/items";
-const SERVER_URL = "http://localhost:5000";
-const AUTH_URL = "http://localhost:5000/api/auth";
+   import { SERVER_URL } from "./config";
+   const API_URL = `${SERVER_URL}/api/items`;
+   const AUTH_URL = `${SERVER_URL}/api/auth`;
 
 const CATEGORIES = [
   "Electronics",
@@ -265,8 +265,6 @@ function App({ user, isAdmin = false }) {
     imageUrl: "",
     contactInfo: "",
   });
-
-  
 
   // Load reported items from the backend.
   async function loadItems(showLoading = true) {
@@ -1246,7 +1244,7 @@ function App({ user, isAdmin = false }) {
           </div>
         </section>
 
-                  {/* DASHBOARD RECENT REPORTS */}
+        {/* DASHBOARD RECENT REPORTS */}
         <section
           className="recent-section"
           style={{
@@ -1311,10 +1309,8 @@ function App({ user, isAdmin = false }) {
             </ul>
           )}
         </section>
-        
+
         {/* POSSIBLE MATCHES PAGE */}
-
-
         <section
           className="matches-section"
           id="matches"
@@ -2091,7 +2087,9 @@ function App({ user, isAdmin = false }) {
                     </span>
 
                     <span className="item-reference">
-                      Campus report
+                      {item.reporterName
+                        ? `Reported by ${item.reporterName}`
+                        : "Campus report"}
                     </span>
                   </div>
 

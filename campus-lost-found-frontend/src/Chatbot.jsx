@@ -2,8 +2,9 @@
 import { useState } from "react";
 import "./Chatbot.css";
 
-const API_URL = "http://localhost:5000/api/chat";
-const ITEMS_URL = "http://localhost:5000/api/items";
+   import { SERVER_URL } from "./config";
+   const API_URL = `${SERVER_URL}/api/chat`;
+   const ITEMS_URL = `${SERVER_URL}/api/items`;
 
 const SUGGESTED_QUESTIONS = [
   "How can I report a lost item?",
@@ -249,7 +250,7 @@ export default function Chatbot() {
         /fetch/i.test(err.message)
       ) {
         message =
-          "Cannot connect to the backend. Check that the server is running at http://localhost:5000 and that CORS allows your frontend address.";
+             "Cannot connect to the server right now. Please try again in a minute.";
       }
 
       setError(message);

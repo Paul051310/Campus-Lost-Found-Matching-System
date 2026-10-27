@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-const AUTH_URL = "http://localhost:5000/api/auth";
+   import { SERVER_URL } from "./config";
+   const AUTH_URL = `${SERVER_URL}/api/auth`;
 
 // Send JSON to the server and return the reply, or throw a readable error.
 async function postJson(path, body) {
