@@ -20,7 +20,7 @@ function Navbar() {
               fontWeight: 400,
             }}
           >
-            Lost &amp; Found System
+            Lost &amp; Found
           </p>
         </div>
       </div>
@@ -56,7 +56,7 @@ function Navbar() {
       {/* Sidebar Footer */}
       <div className="sidebar-footer">
         <p>College of Maasin</p>
-        <small>Campus Lost &amp; Found System</small>
+        <small>Campus Lost &amp; Found</small>
       </div>
     </aside>
   );

@@ -1266,7 +1266,75 @@ function App({ user, isAdmin = false }) {
           </div>
         </section>
 
+                  {/* DASHBOARD RECENT REPORTS */}
+        <section
+          className="recent-section"
+          style={{
+            display: currentPath === "/" ? "" : "none",
+          }}
+        >
+          <div className="section-heading">
+            <div>
+              <h2>Recent Reports</h2>
+              <p>The latest items reported on campus.</p>
+            </div>
+
+            <button
+              type="button"
+              className="recent-view-all"
+              onClick={() => navigate("/browse")}
+            >
+              View all →
+            </button>
+          </div>
+
+          {items.length === 0 ? (
+            <p className="message">No reports yet.</p>
+          ) : (
+            <ul className="recent-list">
+              {items.slice(0, 5).map((item) => (
+                <li
+                  key={item._id || item.id}
+                  className="recent-row"
+                >
+                  <span
+                    className={`item-type ${
+                      item.type === "Lost" ? "lost" : "found"
+                    }`}
+                  >
+                    {item.type}
+                  </span>
+
+                  <div className="recent-info">
+                    <strong>
+                      {item.itemName || "Unnamed item"}
+                    </strong>
+
+                    <small>
+                      📍 {item.location || "Location not provided"}
+                      {" · "}
+                      {item.date
+                        ? new Date(item.date).toLocaleDateString()
+                        : "No date"}
+                    </small>
+                  </div>
+
+                  <span
+                    className={`item-status ${String(
+                      item.status || "Open"
+                    ).toLowerCase()}`}
+                  >
+                    {item.status || "Open"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+        
         {/* POSSIBLE MATCHES PAGE */}
+
+
         <section
           className="matches-section"
           id="matches"
@@ -2417,7 +2485,7 @@ function App({ user, isAdmin = false }) {
         </section>
 
         <footer className="page-footer">
-          CampusFind · Lost &amp; Found Matching System
+          CampusFind · Lost &amp; Found
         </footer>
       </main>
     </div>
