@@ -51,7 +51,7 @@ function getCookieOptions() {
   return {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
     maxAge: SESSION_DURATION,
     path: "/"
   };
@@ -639,7 +639,7 @@ router.post("/logout", (req, res) => {
   res.clearCookie(COOKIE_NAME, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "strict",
+    sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
     path: "/",
   });
 

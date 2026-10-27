@@ -24,11 +24,12 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-const ALLOWED_ORIGINS = [
-  "http://localhost:5171",
-  "http://localhost:5173",
-  "http://localhost:5174",
-];
+   const ALLOWED_ORIGINS = [
+     "http://localhost:5171",
+     "http://localhost:5173",
+     "http://localhost:5174",
+     "https://campusfind-liard.vercel.app",
+   ];
 
 // ------------------------------------
 // SECURITY AND MIDDLEWARE
