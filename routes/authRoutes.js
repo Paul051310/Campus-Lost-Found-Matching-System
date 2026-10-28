@@ -2,6 +2,7 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
+const crypto = require("crypto");
 const User = require("../models/User");
 const PasswordResetRequest = require("../models/PasswordResetRequest");
 
@@ -32,6 +33,39 @@ const recoveryLimiter = rateLimit({
     message: "Too many recovery attempts. Please try again in 15 minutes."
   }
 });
+
+// Limit guesses of the admin sign-up code.
+const adminCodeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: {
+    message: "Too many attempts. Please try again in 15 minutes."
+  }
+});
+
+// Only apply the limiter when someone submits an admin code.
+function limitAdminAttempts(req, res, next) {
+  if (req.body?.adminCode) {
+    return adminCodeLimiter(req, res, next);
+  }
+  next();
+}
+
+// Safely compare the submitted code with the secret in Render.
+function isValidAdminCode(input) {
+  const secret = process.env.ADMIN_SIGNUP_CODE;
+
+  if (!secret || secret.length < 12 || typeof input !== "string") {
+    return false;
+  }
+
+  const a = crypto.createHash("sha256").update(input).digest();
+  const b = crypto.createHash("sha256").update(secret).digest();
+
+  return crypto.timingSafeEqual(a, b);
+}
 
 // Hide most of an email address, e.g. john@gmail.com -> j***@g***.com
 function maskEmail(email) {
@@ -147,30 +181,49 @@ async function requireAdmin(req, res, next) {
 }
 
 // =========================================
-// STUDENT REGISTRATION
-// New student accounts always start pending.
+// REGISTRATION
+// Students start pending. A correct admin code
+// creates an approved administrator.
 // =========================================
-router.post("/register", async (req, res) => {
+router.post("/register", limitAdminAttempts, async (req, res) => {
   try {
     const {
       fullName,
       studentId,
       courseYear,
       email,
-      password
+      password,
+      adminCode
     } = req.body || {};
+
+    const wantsAdmin =
+      typeof adminCode === "string" && adminCode.length > 0;
+
+    if (wantsAdmin && !isValidAdminCode(adminCode)) {
+      return res.status(403).json({
+        message: "Invalid admin code."
+      });
+    }
 
     if (
       typeof fullName !== "string" ||
-      typeof studentId !== "string" ||
-      typeof courseYear !== "string" ||
       typeof email !== "string" ||
       typeof password !== "string" ||
       !fullName.trim() ||
-      !studentId.trim() ||
-      !courseYear.trim() ||
       !email.trim() ||
       !password
+    ) {
+      return res.status(400).json({
+        message: "Please complete all required fields."
+      });
+    }
+
+    if (
+      !wantsAdmin &&
+      (typeof studentId !== "string" ||
+        typeof courseYear !== "string" ||
+        !studentId.trim() ||
+        !courseYear.trim())
     ) {
       return res.status(400).json({
         message: "Please complete all required fields."
@@ -184,7 +237,6 @@ router.post("/register", async (req, res) => {
     }
 
     const normalizedEmail = email.trim().toLowerCase();
-    const normalizedStudentId = studentId.trim();
 
     const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -194,12 +246,20 @@ router.post("/register", async (req, res) => {
       });
     }
 
-    const existingUser = await User.findOne({
-      $or: [
-        { email: normalizedEmail },
-        { studentId: normalizedStudentId }
-      ]
-    });
+    const normalizedStudentId = wantsAdmin
+      ? `ADMIN-${crypto.randomBytes(4).toString("hex").toUpperCase()}`
+      : studentId.trim();
+
+    const existingUser = await User.findOne(
+      wantsAdmin
+        ? { email: normalizedEmail }
+        : {
+            $or: [
+              { email: normalizedEmail },
+              { studentId: normalizedStudentId }
+            ]
+          }
+    );
 
     if (existingUser) {
       return res.status(409).json({
@@ -212,17 +272,18 @@ router.post("/register", async (req, res) => {
     const user = await User.create({
       fullName: fullName.trim(),
       studentId: normalizedStudentId,
-      courseYear: courseYear.trim(),
+      courseYear: wantsAdmin ? "Administrator" : courseYear.trim(),
       email: normalizedEmail,
       passwordHash,
-      role: "student",
-      status: "pending",
+      role: wantsAdmin ? "admin" : "student",
+      status: wantsAdmin ? "approved" : "pending",
       campusId: CAMPUS_ID
     });
 
     return res.status(201).json({
-      message:
-        "Registration submitted successfully. Please wait for administrator approval before logging in.",
+      message: wantsAdmin
+        ? "Administrator account created. You can log in now."
+        : "Registration submitted successfully. Please wait for administrator approval before logging in.",
       user: publicUser(user)
     });
   } catch (error) {

@@ -1,8 +1,7 @@
-
 import { useState } from "react";
 
-   import { SERVER_URL } from "./config";
-   const AUTH_URL = `${SERVER_URL}/api/auth`;
+import { SERVER_URL } from "./config";
+const AUTH_URL = `${SERVER_URL}/api/auth`;
 
 export default function Register({ onBackToLogin }) {
   const [form, setForm] = useState({
@@ -12,12 +11,15 @@ export default function Register({ onBackToLogin }) {
     email: "",
     password: "",
     confirmPassword: "",
+    adminCode: "",
   });
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [registered, setRegistered] = useState(false);
+  const [registeredAsAdmin, setRegisteredAsAdmin] = useState(false);
 
   function handleChange(event) {
     setForm({
@@ -56,6 +58,7 @@ export default function Register({ onBackToLogin }) {
           courseYear: form.courseYear.trim(),
           email: form.email.trim(),
           password: form.password,
+          ...(isAdmin ? { adminCode: form.adminCode } : {}),
         }),
       });
 
@@ -67,6 +70,7 @@ export default function Register({ onBackToLogin }) {
         );
       }
 
+      setRegisteredAsAdmin(isAdmin);
       setRegistered(true);
       setMessage(
         data.message ||
@@ -171,10 +175,14 @@ export default function Register({ onBackToLogin }) {
                 fontSize: "14px",
               }}
             >
-              <strong>Registration submitted!</strong>
+              <strong>
+                {registeredAsAdmin
+                  ? "Administrator account created!"
+                  : "Registration submitted!"}
+              </strong>
               <p>{message}</p>
-              Your account must be approved by the administrator before you
-              can log in.
+              {!registeredAsAdmin &&
+                "Your account must be approved by the administrator before you can log in."}
             </div>
 
             <button
@@ -211,35 +219,39 @@ export default function Register({ onBackToLogin }) {
               />
             </div>
 
-            <div style={{ marginBottom: "15px" }}>
-              <label style={labelStyle} htmlFor="studentId">
-                Student ID
-              </label>
-              <input
-                id="studentId"
-                name="studentId"
-                value={form.studentId}
-                onChange={handleChange}
-                placeholder="Enter your student ID"
-                style={inputStyle}
-                required
-              />
-            </div>
+            {!isAdmin && (
+              <div style={{ marginBottom: "15px" }}>
+                <label style={labelStyle} htmlFor="studentId">
+                  Student ID
+                </label>
+                <input
+                  id="studentId"
+                  name="studentId"
+                  value={form.studentId}
+                  onChange={handleChange}
+                  placeholder="Enter your student ID"
+                  style={inputStyle}
+                  required={!isAdmin}
+                />
+              </div>
+            )}
 
-            <div style={{ marginBottom: "15px" }}>
-              <label style={labelStyle} htmlFor="courseYear">
-                Course and Year
-              </label>
-              <input
-                id="courseYear"
-                name="courseYear"
-                value={form.courseYear}
-                onChange={handleChange}
-                placeholder="e.g. BSIT - 2nd Year"
-                style={inputStyle}
-                required
-              />
-            </div>
+            {!isAdmin && (
+              <div style={{ marginBottom: "15px" }}>
+                <label style={labelStyle} htmlFor="courseYear">
+                  Course and Year
+                </label>
+                <input
+                  id="courseYear"
+                  name="courseYear"
+                  value={form.courseYear}
+                  onChange={handleChange}
+                  placeholder="e.g. BSIT - 2nd Year"
+                  style={inputStyle}
+                  required={!isAdmin}
+                />
+              </div>
+            )}
 
             <div style={{ marginBottom: "15px" }}>
               <label style={labelStyle} htmlFor="email">
@@ -293,6 +305,38 @@ export default function Register({ onBackToLogin }) {
               />
             </div>
 
+            <div style={{ marginBottom: "18px" }}>
+              <label
+                style={{
+                  ...labelStyle,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  cursor: "pointer",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={isAdmin}
+                  onChange={(e) => setIsAdmin(e.target.checked)}
+                />
+                Create an administrator account
+              </label>
+
+              {isAdmin && (
+                <input
+                  name="adminCode"
+                  type="password"
+                  value={form.adminCode}
+                  onChange={handleChange}
+                  placeholder="Enter the admin code"
+                  autoComplete="off"
+                  style={{ ...inputStyle, marginTop: "10px" }}
+                  required
+                />
+              )}
+            </div>
+
             {error && (
               <p
                 role="alert"
@@ -324,18 +368,20 @@ export default function Register({ onBackToLogin }) {
               {loading ? "Creating Account..." : "Create Account"}
             </button>
 
-            <p
-              style={{
-                marginTop: "18px",
-                textAlign: "center",
-                fontSize: "13px",
-                color: "#77778e",
-                lineHeight: 1.6,
-              }}
-            >
-              By registering, you agree to wait for administrator approval
-              before accessing CampusFind.
-            </p>
+            {!isAdmin && (
+              <p
+                style={{
+                  marginTop: "18px",
+                  textAlign: "center",
+                  fontSize: "13px",
+                  color: "#77778e",
+                  lineHeight: 1.6,
+                }}
+              >
+                By registering, you agree to wait for administrator approval
+                before accessing CampusFind.
+              </p>
+            )}
           </form>
         )}
 
