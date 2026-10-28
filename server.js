@@ -1,15 +1,13 @@
-
 require("dotenv").config();
 
 const express = require("express");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const multer = require("multer");
-const path = require("path");
-const fs = require("fs");
 const cookieParser = require("cookie-parser");
 const helmet = require("helmet");
 
+const UploadedImage = require("./models/UploadedImage");
 const itemRoutes = require("./routes/itemRoutes");
 const chatRoutes = require("./routes/chatRoutes");
 const matchRoutes = require("./routes/matchRoutes");
@@ -24,18 +22,18 @@ const app = express();
 
 const PORT = process.env.PORT || 5000;
 
-   const ALLOWED_ORIGINS = [
-     "http://localhost:5171",
-     "http://localhost:5173",
-     "http://localhost:5174",
-     "https://campusfind-liard.vercel.app",
-   ];
+const ALLOWED_ORIGINS = [
+  "http://localhost:5171",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "https://campusfind-liard.vercel.app",
+];
 
 // ------------------------------------
 // SECURITY AND MIDDLEWARE
 // ------------------------------------
 
-// Allow images to be displayed by the frontend on another localhost port.
+// Allow images to be displayed by the frontend on another website.
 // This does NOT remove authentication from the /uploads route.
 app.use(
   helmet({
@@ -48,7 +46,7 @@ app.use(
 app.use(
   cors({
     origin: function (origin, callback) {
-      // Permit requests without an Origin header, such as local health checks.
+      // Permit requests without an Origin header, such as health checks.
       if (!origin || ALLOWED_ORIGINS.includes(origin)) {
         return callback(null, true);
       }
@@ -63,34 +61,18 @@ app.use(express.json({ limit: "1mb" }));
 app.use(cookieParser());
 
 // ------------------------------------
-// UPLOAD DIRECTORY
-// ------------------------------------
-
-const uploadDir = path.join(__dirname, "uploads");
-
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-// ------------------------------------
 // IMAGE STORAGE
+// Photos are kept in memory while uploading,
+// then saved in the database so they survive restarts.
 // ------------------------------------
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
+const storage = multer.memoryStorage();
 
-  filename: (req, file, cb) => {
-    const extension = path.extname(file.originalname).toLowerCase();
-
-    const uniqueName = `${Date.now()}-${Math.round(
-      Math.random() * 1e9
-    )}${extension}`;
-
-    cb(null, uniqueName);
-  },
-});
+const EXTENSIONS = {
+  "image/jpeg": ".jpg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+};
 
 // ------------------------------------
 // IMAGE UPLOAD RESTRICTIONS
@@ -104,13 +86,7 @@ const upload = multer({
   },
 
   fileFilter: (req, file, cb) => {
-    const allowedTypes = [
-      "image/jpeg",
-      "image/png",
-      "image/webp",
-    ];
-
-    if (allowedTypes.includes(file.mimetype)) {
+    if (EXTENSIONS[file.mimetype]) {
       return cb(null, true);
     }
 
@@ -142,24 +118,42 @@ app.use("/api/auth", authRoutes);
 // PROTECTED IMAGE ACCESS
 // ------------------------------------
 
-// Only authenticated, approved campus users can access uploaded images.
-app.use(
-  "/uploads",
-  requireAuth,
-  express.static(uploadDir, {
-    fallthrough: false,
-    setHeaders: (res) => {
-      res.setHeader("Cache-Control", "private, no-cache");
-    },
-  })
-);
+//
+
+// Only authenticated, approved campus users can view uploaded images.
+app.get("/uploads/:filename", requireAuth, async (req, res, next) => {
+  try {
+    const { filename } = req.params;
+
+    if (!/^[0-9]+-[0-9]+\.(jpg|png|webp)$/.test(filename)) {
+      return res.status(404).json({
+        message: "The requested image file was not found.",
+      });
+    }
+
+    const image = await UploadedImage.findOne({ filename });
+
+    if (!image) {
+      return res.status(404).json({
+        message: "The requested image file was not found.",
+      });
+    }
+
+    res.setHeader("Content-Type", image.contentType);
+    res.setHeader("Cache-Control", "private, no-cache");
+
+    return res.send(image.data);
+  } catch (error) {
+    return next(error);
+  }
+});
 
 // ------------------------------------
 // PROTECTED IMAGE UPLOAD
 // ------------------------------------
 
 app.post("/api/items/upload", requireAuth, (req, res, next) => {
-  upload.single("image")(req, res, (error) => {
+  upload.single("image")(req, res, async (error) => {
     if (error) {
       return next(error);
     }
@@ -170,10 +164,24 @@ app.post("/api/items/upload", requireAuth, (req, res, next) => {
       });
     }
 
-    return res.status(201).json({
-      message: "Image uploaded successfully!",
-      imageUrl: `/uploads/${req.file.filename}`,
-    });
+    try {
+      const filename = `${Date.now()}-${Math.round(
+        Math.random() * 1e9
+      )}${EXTENSIONS[req.file.mimetype]}`;
+
+      await UploadedImage.create({
+        filename,
+        contentType: req.file.mimetype,
+        data: req.file.buffer,
+      });
+
+      return res.status(201).json({
+        message: "Image uploaded successfully!",
+        imageUrl: `/uploads/${filename}`,
+      });
+    } catch (saveError) {
+      return next(saveError);
+    }
   });
 });
 
@@ -241,12 +249,6 @@ app.use((error, req, res, next) => {
 
     return res.status(403).json({
       message: "This website origin is not allowed to access the API.",
-    });
-  }
-
-  if (error.status === 404 && req.originalUrl.startsWith("/uploads/")) {
-    return res.status(404).json({
-      message: "The requested image file was not found.",
     });
   }
 
