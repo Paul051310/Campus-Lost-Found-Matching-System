@@ -1,17 +1,16 @@
-
 const express = require("express");
 const mongoose = require("mongoose");
 const router = express.Router();
 const Item = require("../models/Item");
 
-const OLLAMA_URL = "http://127.0.0.1:11434/api/chat";
-const MODEL_NAME = "llama3.2:1b";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MODEL_NAME = process.env.GROQ_MODEL || "openai/gpt-oss-120b";
 
 const MAX_CANDIDATES = 10;
 const MIN_MATCH_SCORE = 30;
 
 // Only expose information needed for matching.
-// Never send contact information or campus metadata to Ollama.
+// Never send contact information or campus metadata to the AI service.
 function publicItem(item) {
   return {
     _id: String(item._id),
@@ -69,6 +68,13 @@ router.post("/:itemId", async (req, res) => {
     if (!mongoose.Types.ObjectId.isValid(itemId)) {
       return res.status(400).json({
         message: "Invalid item ID."
+      });
+    }
+
+    if (!process.env.GROQ_API_KEY) {
+      console.error("GROQ_API_KEY is missing.");
+      return res.status(500).json({
+        message: "The AI service is not set up. Check the backend settings."
       });
     }
 
@@ -199,15 +205,14 @@ Rules:
 }
 `;
 
-    const aiResponse = await fetch(OLLAMA_URL, {
+    const aiResponse = await fetch(GROQ_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
         model: MODEL_NAME,
-        stream: false,
-        format: "json",
         messages: [
           {
             role: "system",
@@ -219,31 +224,37 @@ Rules:
             content: prompt
           }
         ],
-        options: {
-          temperature: 0
-        }
+        response_format: { type: "json_object" },
+        max_tokens: 2000,
+        temperature: 0
       }),
-      signal: AbortSignal.timeout(120000)
+      signal: AbortSignal.timeout(60000)
     });
 
     if (!aiResponse.ok) {
       console.error(
-        "Ollama HTTP error:",
+        "Groq HTTP error:",
         aiResponse.status,
         await aiResponse.text()
       );
 
+      if (aiResponse.status === 429) {
+        return res.status(429).json({
+          message: "The AI service is busy right now. Please wait a moment and try again."
+        });
+      }
+
       return res.status(502).json({
-        message: "Ollama could not compare the reports. Please try again."
+        message: "The AI service could not compare the reports. Please try again."
       });
     }
 
     const aiData = await aiResponse.json();
-    const content = aiData.message?.content;
+    const content = aiData.choices?.[0]?.message?.content;
 
     if (!content) {
       return res.status(502).json({
-        message: "Ollama returned an empty matching result."
+        message: "The AI service returned an empty matching result."
       });
     }
 
@@ -252,14 +263,14 @@ Rules:
     try {
       parsed = JSON.parse(content);
     } catch (error) {
-      console.error("Invalid Ollama matching JSON:", content);
+      console.error("Invalid Groq matching JSON:", content);
 
       return res.status(502).json({
-        message: "Ollama returned an invalid matching result. Please try again."
+        message: "The AI service returned an invalid matching result. Please try again."
       });
     }
 
-    // Only accept candidate IDs that were sent to Ollama.
+    // Only accept candidate IDs that were sent to the AI service.
     const candidateMap = new Map(
       candidateData.map(item => [item._id, item])
     );
@@ -319,13 +330,13 @@ Rules:
       error.name === "TimeoutError"
     ) {
       return res.status(504).json({
-        message: "Ollama took too long to compare the reports. Please try again."
+        message: "The AI service took too long to compare the reports. Please try again."
       });
     }
 
     if (error.name === "TypeError" && /fetch/i.test(error.message)) {
       return res.status(502).json({
-        message: "Cannot connect to Ollama. Check that Ollama is running."
+        message: "Cannot reach the AI service. Check your internet connection."
       });
     }
 

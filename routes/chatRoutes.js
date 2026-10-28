@@ -1,11 +1,10 @@
-
 const express = require("express");
 const router = express.Router();
 const Item = require("../models/Item");
 const ClaimHistory = require("../models/ClaimHistory");
 
-const OLLAMA_URL = "http://127.0.0.1:11434/api/chat";
-const MODEL_NAME = "llama3.2:1b";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MODEL_NAME = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 const CAMPUS_ID = "college-of-maasin";
 
 const SYSTEM_PROMPT = `
@@ -386,7 +385,7 @@ router.post("/", async (req, res) => {
       });
     }
 
-    // General CampusFind questions use Ollama.
+    // General CampusFind questions use Groq.
     const safeHistory = Array.isArray(history)
       ? history
           .filter(item =>
@@ -401,36 +400,41 @@ router.post("/", async (req, res) => {
           }))
       : [];
 
-    const aiResponse = await fetch(OLLAMA_URL, {
+    if (!process.env.GROQ_API_KEY) {
+      console.error("GROQ_API_KEY is not set.");
+      return res.status(503).json({
+        error: "The AI assistant is not set up yet."
+      });
+    }
+
+    const aiResponse = await fetch(GROQ_URL, {
       method: "POST",
       headers: {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`
       },
       body: JSON.stringify({
         model: MODEL_NAME,
-        stream: false,
+        temperature: 0,
+        max_tokens: 300,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           ...safeHistory,
           { role: "user", content: text }
-        ],
-        options: {
-          temperature: 0,
-          num_predict: 220
-        }
+        ]
       }),
-      signal: AbortSignal.timeout(120000)
+      signal: AbortSignal.timeout(30000)
     });
 
     if (!aiResponse.ok) {
-      console.error("Ollama HTTP status:", aiResponse.status);
+      console.error("Groq HTTP status:", aiResponse.status);
       return res.status(502).json({
         error: "The AI service returned an error. Please try again."
       });
     }
 
     const aiData = await aiResponse.json();
-    const reply = aiData.message?.content;
+    const reply = aiData.choices?.[0]?.message?.content;
 
     if (!reply) {
       return res.status(502).json({
