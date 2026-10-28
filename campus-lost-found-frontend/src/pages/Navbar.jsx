@@ -1,11 +1,16 @@
+import { useState } from "react";
 import { NavLink } from "react-router-dom";
 
 function Navbar() {
+  const [menuOpen, setMenuOpen] = useState(false);
+
   const getLinkClass = ({ isActive }) =>
     `menu-item${isActive ? " active" : ""}`;
 
+  const closeMenu = () => setMenuOpen(false);
+
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar${menuOpen ? " menu-open" : ""}`}>
       {/* CampusFind Brand */}
       <div className="brand">
         <div className="brand-icon">C</div>
@@ -25,29 +30,42 @@ function Navbar() {
         </div>
       </div>
 
+      {/* 3-bar menu button (shown on phones only) */}
+      <button
+        type="button"
+        className={`menu-toggle${menuOpen ? " open" : ""}`}
+        aria-label={menuOpen ? "Close menu" : "Open menu"}
+        aria-expanded={menuOpen}
+        onClick={() => setMenuOpen((previous) => !previous)}
+      >
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+
       {/* Sidebar Navigation */}
-      <nav className="sidebar-nav">
-        <NavLink to="/" end className={getLinkClass}>
+      <nav className={`sidebar-nav${menuOpen ? " open" : ""}`}>
+        <NavLink to="/" end className={getLinkClass} onClick={closeMenu}>
           <span className="icon">▦</span>
           Dashboard
         </NavLink>
 
-        <NavLink to="/browse" className={getLinkClass}>
+        <NavLink to="/browse" className={getLinkClass} onClick={closeMenu}>
           <span className="icon">⌕</span>
           Browse Items
         </NavLink>
 
-        <NavLink to="/matches" className={getLinkClass}>
+        <NavLink to="/matches" className={getLinkClass} onClick={closeMenu}>
           <span className="icon">⇄</span>
           Possible Matches
         </NavLink>
 
-        <NavLink to="/report" className={getLinkClass}>
+        <NavLink to="/report" className={getLinkClass} onClick={closeMenu}>
           <span className="icon">＋</span>
           Report an Item
         </NavLink>
 
-        <NavLink to="/assistant" className={getLinkClass}>
+        <NavLink to="/assistant" className={getLinkClass} onClick={closeMenu}>
           <span className="icon">✦</span>
           AI Assistant
         </NavLink>
