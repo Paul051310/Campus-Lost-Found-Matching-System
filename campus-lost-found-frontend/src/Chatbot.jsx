@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import "./Chatbot.css";
 
@@ -44,6 +43,17 @@ function formatItem(item, index) {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+// Does the message look like a request to create a new report?
+function looksLikeNewReport(text) {
+  if (/\bhow\b/i.test(text)) return false;
+
+  return (
+    /\b(i|we)\s+(just\s+)?(lost|found|misplaced)\b/i.test(text) ||
+    (/\b(report|submit|file|create|add|post)\b/i.test(text) &&
+      /\b(lost|found|misplaced|missing)\b/i.test(text))
+  );
 }
 
 function detectReportRequest(text) {
@@ -117,13 +127,17 @@ export default function Chatbot() {
     {
       role: "assistant",
       content:
-        "Hi! I'm CampusFind AI. Choose a suggested question below or type your own question."
+        "Hi! I'm CampusFind AI. Choose a suggested question below or type your own question. You can also tell me what you lost or found, for example: \"I lost my brown wallet\", and I will help you report it."
     }
   ]);
 
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+
+  // A report the assistant is helping to create.
+  const [draft, setDraft] = useState(null);
+  const [awaitingConfirm, setAwaitingConfirm] = useState(false);
 
   async function sendMessage(question) {
     const text = (question ?? input).trim();
@@ -145,7 +159,12 @@ export default function Chatbot() {
     setLoading(true);
 
     try {
-      const reportRequest = detectReportRequest(text);
+      // While a report is being created, everything goes to the backend.
+      const reportRequest =
+        draft || looksLikeNewReport(text)
+          ? null
+          : detectReportRequest(text);
+
       let reply;
 
       if (reportRequest) {
@@ -212,7 +231,8 @@ export default function Chatbot() {
           },
           body: JSON.stringify({
             message: text,
-            history
+            history,
+            draft
           })
         });
 
@@ -231,6 +251,9 @@ export default function Chatbot() {
         }
 
         reply = data.reply;
+
+        setDraft(data.draft || null);
+        setAwaitingConfirm(Boolean(data.awaitingConfirm));
       }
 
       setMessages((current) => [
@@ -257,6 +280,75 @@ export default function Chatbot() {
     } finally {
       setLoading(false);
     }
+  }
+
+  // The user clicked "Yes, save it".
+  async function confirmSave() {
+    if (!draft || loading) return;
+
+    setMessages((current) => [
+      ...current,
+      { role: "user", content: "Yes, save it." }
+    ]);
+
+    setError("");
+    setLoading(true);
+    setAwaitingConfirm(false);
+
+    try {
+      const response = await fetch(API_URL, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json"
+        },
+        body: JSON.stringify({
+          message: "Yes, save it.",
+          confirmDraft: draft
+        })
+      });
+
+      const data = await readResponse(response);
+
+      if (!response.ok) {
+        throw new Error(getErrorMessage(response.status, data));
+      }
+
+      setDraft(null);
+
+      setMessages((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content:
+            data.reply || "Your report was saved."
+        }
+      ]);
+    } catch (err) {
+      console.error("CampusFind save report failed:", err);
+      setError(err.message || "The report could not be saved.");
+      setAwaitingConfirm(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // The user clicked "No".
+  function cancelSave() {
+    if (loading) return;
+
+    setDraft(null);
+    setAwaitingConfirm(false);
+
+    setMessages((current) => [
+      ...current,
+      { role: "user", content: "No." },
+      {
+        role: "assistant",
+        content: "Okay, I did not save the report. Nothing was changed."
+      }
+    ]);
   }
 
   return (
@@ -302,6 +394,28 @@ export default function Chatbot() {
           </div>
         )}
       </div>
+
+      {awaitingConfirm && draft && (
+        <div className="campus-chat-confirm">
+          <button
+            type="button"
+            className="campus-chat-yes"
+            onClick={confirmSave}
+            disabled={loading}
+          >
+            Yes, save it
+          </button>
+
+          <button
+            type="button"
+            className="campus-chat-no"
+            onClick={cancelSave}
+            disabled={loading}
+          >
+            No
+          </button>
+        </div>
+      )}
 
       {error && (
         <p className="campus-chat-error" role="alert">
