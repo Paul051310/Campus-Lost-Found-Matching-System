@@ -238,6 +238,7 @@ function App({ user, isAdmin = false }) {
   const [claimingItemId, setClaimingItemId] = useState(null);
   const [claimText, setClaimText] = useState("");
   const [historyOpenId, setHistoryOpenId] = useState(null);
+  const [highlightId, setHighlightId] = useState(null);
 
   const [claimHistory, setClaimHistory] = useState([]);
   const [students, setStudents] = useState([]);
@@ -793,6 +794,27 @@ function App({ user, isAdmin = false }) {
     }, 200);
   }
 
+  // Open an item from the dashboard: go to Browse, scroll to it, and highlight it.
+  function openItem(item) {
+    setSearch("");
+    setFilter("All");
+    setStatusFilter("All");
+    setHighlightId(item._id);
+
+    navigate("/browse");
+
+    window.setTimeout(() => {
+      document
+        .getElementById(`item-${item._id}`)
+        ?.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+    }, 200);
+
+    window.setTimeout(() => setHighlightId(null), 3000);
+  }
+
   function cancelEditing() {
     setEditingItem(null);
     setEditSelectedImage(null);
@@ -1297,13 +1319,15 @@ function App({ user, isAdmin = false }) {
                     </small>
                   </div>
 
-                  <span
-                    className={`item-status ${String(
+                  <button
+                    type="button"
+                    className={`item-status recent-open ${String(
                       item.status || "Open"
                     ).toLowerCase()}`}
+                    onClick={() => openItem(item)}
                   >
                     {item.status || "Open"}
-                  </span>
+                  </button>
                 </li>
               ))}
             </ul>
@@ -2007,7 +2031,10 @@ function App({ user, isAdmin = false }) {
           <div className="items-grid">
             {filteredItems.map((item) => (
               <article
-                className="item-card"
+                className={`item-card ${
+                  highlightId === item._id ? "item-highlight" : ""
+                }`}
+                id={`item-${item._id}`}
                 key={item._id || item.id}
               >
                 <div className="item-card-top">
