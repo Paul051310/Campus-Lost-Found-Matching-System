@@ -3957,3 +3957,21 @@ a:focus-visible {
     padding-top: 84px !important;
   }
 }
+
+.recent-open {
+  border: none;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.recent-open:hover {
+  opacity: 0.7;
+}
+
+.item-highlight {
+  outline: 3px solid #6366f1;
+  box-shadow: 0 0 0 6px rgba(99, 102, 241, 0.25);
+  transition: outline 0.3s, box-shadow 0.3s;
+}
