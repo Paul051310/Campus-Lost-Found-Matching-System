@@ -659,3 +659,34 @@
     max-height: 200px;
   }
 }
+.campus-chat-confirm {
+  display: flex;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid #e3e6f0;
+}
+
+.campus-chat-yes,
+.campus-chat-no {
+  padding: 10px 18px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.campus-chat-yes {
+  background: #4f46e5;
+  color: #ffffff;
+}
+
+.campus-chat-no {
+  background: #eef0f6;
+  color: #2d3350;
+}
+
+.campus-chat-yes:disabled,
+.campus-chat-no:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
